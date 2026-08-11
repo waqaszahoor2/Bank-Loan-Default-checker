@@ -33,9 +33,9 @@ export default function BatchPredictionPage() {
       return false;
     }
 
-    // 4 MB file size check (Vercel Functions payload limit is ~4.5 MB)
-    if (selectedFile.size > 4 * 1024 * 1024) {
-      setError('For datasets larger than 4 MB, import through Google Cloud Storage / BigQuery.');
+    // 10 MB file size check
+    if (selectedFile.size > 10 * 1024 * 1024) {
+      setError('For datasets larger than 10 MB, import through Google Cloud Storage / BigQuery.');
       setFile(null);
       return false;
     }
@@ -138,7 +138,7 @@ export default function BatchPredictionPage() {
             Batch Prediction Hub
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Upload CSV/JSON portfolio datasets (up to 4 MB) or stream via Google Cloud Storage / BigQuery
+            Upload CSV/JSON portfolio datasets (up to 10 MB) or stream via Google Cloud Storage / BigQuery
           </p>
         </div>
 
@@ -183,10 +183,10 @@ export default function BatchPredictionPage() {
                 {file ? file.name : 'Upload CSV / JSON or Drag & Drop File'}
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Supports CSV or JSON datasets up to 4 MB for direct Vercel upload
+                Supports CSV or JSON datasets up to 10 MB for direct upload
               </p>
               <p className="text-[11px] text-purple-300 mt-1 font-medium">
-                For datasets larger than 4 MB, import through Google Cloud Storage / BigQuery.
+                For datasets larger than 10 MB, import through Google Cloud Storage / BigQuery.
               </p>
             </div>
           </label>

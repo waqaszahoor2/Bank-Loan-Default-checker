@@ -403,10 +403,10 @@ async def predict_batch(
     
     if file is not None:
         content = await file.read()
-        if len(content) > 4 * 1024 * 1024:
+        if len(content) > 10 * 1024 * 1024:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="File too large for direct Vercel upload (exceeds 4 MB limit). For datasets larger than 4 MB, import through Google Cloud Storage / BigQuery."
+                detail="File too large for direct upload (exceeds 10 MB limit). For datasets larger than 10 MB, import through Google Cloud Storage / BigQuery."
             )
             
         try:
