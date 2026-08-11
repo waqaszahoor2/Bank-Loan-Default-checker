@@ -249,7 +249,13 @@ def preprocess_and_predict_single(data_dict: Dict[str, Any]):
     if model_manager.model is None:
         raise HTTPException(status_code=503, detail="Champion ML Model file is missing or not loaded.")
 
-    df = pd.DataFrame([data_dict])
+    # Populate exact schema defaults via Pydantic model_dump
+    try:
+        validated_dict = CustomerDataInput(**data_dict).model_dump()
+    except ValidationError as val_err:
+        raise HTTPException(status_code=422, detail=str(val_err))
+
+    df = pd.DataFrame([validated_dict])
     df = compute_engineered_features(df)
 
     probs = model_manager.model.predict_proba(df)[0]
