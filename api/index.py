@@ -75,12 +75,12 @@ class CustomerDataInput(BaseModel):
     employment_years: float = Field(0.0, ge=0, le=70, example=5.0)
     employment_type: str = Field("Salaried", example="Salaried")
     existing_customer_years: float = Field(0.0, ge=0, example=2.0)
-    account_balance_pkr: float = Field(0.0, ge=0, example=150000)
+    account_balance_pkr: float = Field(0.0, example=150000) # Negative account balance permitted in training/cloud distribution
     loan_amount_pkr: float = Field(..., gt=0, example=250000)
     loan_term_months: int = Field(12, gt=0, le=360, example=12)
     interest_rate_pct: float = Field(12.5, ge=0, le=100, example=13.5)
     credit_score: float = Field(..., ge=300, le=850, example=680)
-    debt_to_income_pct: float = Field(25.0, ge=0, le=100, example=25.0)
+    debt_to_income_pct: float = Field(25.0, ge=0, le=150, example=25.0) # DTI up to 150 permitted
     missed_payments_12m: int = Field(0, ge=0, example=0)
     late_payments_24m: int = Field(0, ge=0, example=0)
     number_of_open_loans: int = Field(0, ge=0, example=1)
@@ -98,23 +98,31 @@ class CustomerDataInput(BaseModel):
 
     @field_validator('employment_type')
     def validate_emp_type(cls, v):
-        valid = ['Salaried', 'Self-Employed', 'Contract', 'Unemployed']
-        return v if v in valid else 'Salaried'
+        valid = ['Salaried', 'Self-employed', 'Contract', 'Unemployed']
+        if v not in valid:
+            raise ValueError(f"Invalid employment_type '{v}'. Must be one of {valid}")
+        return v
 
     @field_validator('city_tier')
     def validate_city_tier(cls, v):
         valid = ['Tier 1', 'Tier 2', 'Tier 3']
-        return v if v in valid else 'Tier 1'
+        if v not in valid:
+            raise ValueError(f"Invalid city_tier '{v}'. Must be one of {valid}")
+        return v
 
     @field_validator('home_ownership')
     def validate_home_ownership(cls, v):
-        valid = ['Own', 'Rent', 'Mortgage']
-        return v if v in valid else 'Own'
+        valid = ['Rent', 'Own', 'Mortgage', 'Family']
+        if v not in valid:
+            raise ValueError(f"Invalid home_ownership '{v}'. Must be one of {valid}")
+        return v
 
     @field_validator('loan_purpose')
     def validate_loan_purpose(cls, v):
-        valid = ['Personal', 'Auto', 'Education', 'Business']
-        return v if v in valid else 'Personal'
+        valid = ['Auto', 'Personal', 'Medical', 'Home Improvement', 'Business', 'Education']
+        if v not in valid:
+            raise ValueError(f"Invalid loan_purpose '{v}'. Must be one of {valid}")
+        return v
 
 class DataSourceTestInput(BaseModel):
     source_type: str
@@ -160,7 +168,7 @@ def compute_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# --- Helper Functions for Inference & Key Factors ---
+# --- Helper Functions for Inference & Risk Indicators ---
 def preprocess_and_predict_single(data_dict: Dict[str, Any]):
     if model_manager.model is None:
         raise HTTPException(status_code=503, detail="Champion ML Model file is missing or not loaded.")
@@ -201,32 +209,32 @@ def calculate_key_risk_factors(row: Dict[str, Any], default_prob: float) -> List
     if dti > 40:
         factors.append({
             "factor": "High Debt-to-Income Ratio",
-            "impact": "+32%",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "high",
-            "description": f"Debt-to-income ratio ({dti}%) exceeds healthy 40% threshold."
+            "description": f"Debt-to-income ratio ({dti}%) exceeds 40% threshold."
         })
     elif dti > 30:
         factors.append({
             "factor": "Elevated Debt-to-Income",
-            "impact": "+15%",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "medium",
-            "description": f"Debt-to-income ratio ({dti}%) is moderately high."
+            "description": f"Debt-to-income ratio ({dti}%) is elevated."
         })
 
     cs = float(row.get("credit_score", 680.0) or 680.0)
     if cs < 620:
         factors.append({
             "factor": "Low Credit Score",
-            "impact": "+28%",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "high",
-            "description": f"Credit score ({cs}) falls in subprime risk category (<620)."
+            "description": f"Credit score ({cs}) is in subprime risk category (<620)."
         })
     elif cs < 670:
         factors.append({
             "factor": "Fair Credit Score",
-            "impact": "+12%",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "medium",
-            "description": f"Credit score ({cs}) is fair but below prime target."
+            "description": f"Credit score ({cs}) is fair."
         })
 
     missed = int(row.get("missed_payments_12m", 0) or 0)
@@ -235,7 +243,7 @@ def calculate_key_risk_factors(row: Dict[str, Any], default_prob: float) -> List
     if stress > 0:
         factors.append({
             "factor": "Payment Stress & Delinquencies",
-            "impact": f"+{min(35, stress * 12)}%",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "high" if stress > 1 else "medium",
             "description": f"Payment stress count is {stress} ({missed} missed 12m, {late} late 24m)."
         })
@@ -244,15 +252,15 @@ def calculate_key_risk_factors(row: Dict[str, Any], default_prob: float) -> List
     if prev_def > 0:
         factors.append({
             "factor": "Prior Loan Default History",
-            "impact": "+35%",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "high",
             "description": "Applicant has recorded prior default events."
         })
 
     if len(factors) < 3:
         factors.append({
-            "factor": "Loan Amount to Income Ratio",
-            "impact": "+10%" if default_prob > 0.4 else "-8%",
+            "factor": "Loan Amount Ratio",
+            "indicator_type": "Rule-based Risk Indicator",
             "severity": "medium" if default_prob > 0.4 else "low",
             "description": "Proportion of requested loan against monthly income."
         })
@@ -290,7 +298,7 @@ def model_info():
         },
         "input_features": model_manager.input_features,
         "training_metadata": {
-            "dataset_rows": 806,
+            "dataset_rows": 800,
             "target_variable": "default_next_12m",
             "preprocessing": "SimpleImputer + StandardScaler + OneHotEncoder"
         }
@@ -391,21 +399,14 @@ async def predict_batch(
         "invalid_rows": invalid_rows
     }
 
-# --- Honest External Data Source Endpoints (No Fake Connections) ---
+# --- Honest External Data Source Endpoints (HTTP 501 Until Cloud Connected) ---
 @app.post("/data/preview")
 @app.post("/api/data/preview")
 def data_preview(config: DataSourceTestInput):
-    if not config.host and not config.bucket:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Cloud data integration not configured. Please supply valid connection parameters."
-        )
-    return {
-        "status": "connected",
-        "source_type": config.source_type,
-        "columns": [],
-        "sample_records": []
-    }
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Cloud data integration not configured. Google Cloud / database integration pending."
+    )
 
 @app.post("/data/validate")
 @app.post("/api/data/validate")
@@ -450,66 +451,15 @@ def data_merge(payload: MergeDataInput):
 @app.post("/data-source/test")
 @app.post("/api/data-source/test")
 def data_source_test(config: DataSourceTestInput):
-    if not config.host and not config.bucket:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Integration not configured. Please provide cloud database or bucket credentials."
-        )
-    return {
-        "success": True,
-        "source_type": config.source_type,
-        "message": f"Successfully authenticated and connected to {config.source_type.upper()}."
-    }
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Cloud data integration connector not configured. HTTP 501 returned until Google Cloud credentials are added."
+    )
 
 @app.get("/customers")
 @app.get("/api/customers")
 def get_sample_customers():
-    # In-memory sample customer records (no Excel dependency required in production)
-    sample_records = [
-        {
-            "customer_id": "CUST00001", "age": 45, "monthly_income_pkr": 125000, "employment_years": 8.0,
-            "employment_type": "Salaried", "account_balance_pkr": 450000, "loan_amount_pkr": 500000,
-            "loan_term_months": 24, "interest_rate_pct": 11.5, "credit_score": 740, "debt_to_income_pct": 22.0,
-            "missed_payments_12m": 0, "late_payments_24m": 0, "number_of_open_loans": 1, "savings_balance_pkr": 300000,
-            "avg_monthly_transactions": 45, "avg_monthly_card_spend_pkr": 35000, "digital_logins_30d": 20,
-            "city_tier": "Tier 1", "home_ownership": "Own", "loan_purpose": "Personal", "previous_default": 0
-        },
-        {
-            "customer_id": "CUST00002", "age": 29, "monthly_income_pkr": 45000, "employment_years": 1.5,
-            "employment_type": "Self-Employed", "account_balance_pkr": 35000, "loan_amount_pkr": 800000,
-            "loan_term_months": 36, "interest_rate_pct": 16.0, "credit_score": 580, "debt_to_income_pct": 52.0,
-            "missed_payments_12m": 2, "late_payments_24m": 3, "number_of_open_loans": 3, "savings_balance_pkr": 15000,
-            "avg_monthly_transactions": 12, "avg_monthly_card_spend_pkr": 18000, "digital_logins_30d": 5,
-            "city_tier": "Tier 3", "home_ownership": "Rent", "loan_purpose": "Business", "previous_default": 1
-        },
-        {
-            "customer_id": "CUST00003", "age": 34, "monthly_income_pkr": 85000, "employment_years": 4.0,
-            "employment_type": "Salaried", "account_balance_pkr": 180000, "loan_amount_pkr": 350000,
-            "loan_term_months": 18, "interest_rate_pct": 13.0, "credit_score": 690, "debt_to_income_pct": 31.0,
-            "missed_payments_12m": 0, "late_payments_24m": 1, "number_of_open_loans": 2, "savings_balance_pkr": 120000,
-            "avg_monthly_transactions": 28, "avg_monthly_card_spend_pkr": 22000, "digital_logins_30d": 14,
-            "city_tier": "Tier 2", "home_ownership": "Rent", "loan_purpose": "Auto", "previous_default": 0
-        }
-    ]
-
-    customer_list = []
-    for rec in sample_records:
-        pred = preprocess_and_predict_single(rec)
-        customer_list.append({
-            "customer_id": rec["customer_id"],
-            "name": f"Customer {rec['customer_id']}",
-            "age": rec["age"],
-            "monthly_income_pkr": rec["monthly_income_pkr"],
-            "loan_amount_pkr": rec["loan_amount_pkr"],
-            "credit_score": rec["credit_score"],
-            "default_probability": pred["default_probability"],
-            "default_probability_pct": pred["default_probability_pct"],
-            "risk_level": pred["risk_level"],
-            "decision": "Approved" if pred["risk_level"] == "Low Risk" else ("Review" if pred["risk_level"] == "Medium Risk" else "Reject"),
-            "prediction_details": pred
-        })
-
-    return {"customers": customer_list}
+    return {"customers": []}
 
 @app.get("/results")
 @app.get("/api/results")

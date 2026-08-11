@@ -4,11 +4,11 @@ import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const performanceData = [
-  { date: 'Apr 25', AUC: 0.812, F1: 0.745 },
-  { date: 'May 01', AUC: 0.825, F1: 0.758 },
-  { date: 'May 08', AUC: 0.828, F1: 0.762 },
-  { date: 'May 15', AUC: 0.831, F1: 0.768 },
-  { date: 'May 22', AUC: 0.834, F1: 0.771 },
+  { date: 'Apr 25', AUC: 0.812, F1: 0.380 },
+  { date: 'May 01', AUC: 0.825, F1: 0.388 },
+  { date: 'May 08', AUC: 0.828, F1: 0.392 },
+  { date: 'May 15', AUC: 0.831, F1: 0.396 },
+  { date: 'May 22', AUC: 0.834, F1: 0.400 },
 ];
 
 export const ModelPerformanceChart: React.FC = () => {
@@ -26,7 +26,7 @@ export const ModelPerformanceChart: React.FC = () => {
         </div>
         <div className="bg-surface/60 p-2.5 rounded-xl border border-surface-border">
           <p className="text-[11px] text-slate-400">F1 Score</p>
-          <p className="text-lg font-bold text-indigo-400">0.7710</p>
+          <p className="text-lg font-bold text-indigo-400">0.4000</p>
         </div>
       </div>
 
@@ -45,7 +45,7 @@ export const ModelPerformanceChart: React.FC = () => {
               </linearGradient>
             </defs>
             <XAxis dataKey="date" stroke="#64748B" fontSize={11} tickLine={false} />
-            <YAxis domain={[0.7, 0.9]} stroke="#64748B" fontSize={11} tickLine={false} />
+            <YAxis domain={[0.3, 0.9]} stroke="#64748B" fontSize={11} tickLine={false} />
             <Tooltip
               contentStyle={{
                 backgroundColor: '#161F33',

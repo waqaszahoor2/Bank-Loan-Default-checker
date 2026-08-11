@@ -53,7 +53,7 @@ export default function ModelInfoPage() {
         </div>
         <div className="glass-card p-4 text-center border-indigo-500/30">
           <p className="text-[11px] text-slate-400">F1 Score</p>
-          <p className="text-2xl font-bold text-indigo-400 mt-1">0.7710</p>
+          <p className="text-2xl font-bold text-indigo-400 mt-1">0.4000</p>
         </div>
         <div className="glass-card p-4 text-center">
           <p className="text-[11px] text-slate-400">Precision</p>
@@ -74,7 +74,7 @@ export default function ModelInfoPage() {
         <div className="lg:col-span-2 glass-card p-6 space-y-4">
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-brand-400" />
-            ROC-AUC & F1 Validation Stability Trend
+            ROC-AUC & Validation Metrics Summary
           </h2>
           <div className="h-64 pt-2">
             <ModelPerformanceChart />
@@ -84,43 +84,24 @@ export default function ModelInfoPage() {
         <div className="glass-card p-6 space-y-4">
           <h2 className="text-base font-bold text-white flex items-center gap-2">
             <Shield className="w-5 h-5 text-indigo-400" />
-            Backend Challenger Benchmarking
+            Model Pipeline Details
           </h2>
-          <p className="text-xs text-slate-400">
-            Internal challenger models evaluated on backend during training:
-          </p>
-
-          <div className="space-y-3">
-            <div className="p-3 rounded-xl bg-brand-600/20 border border-brand-500/40 flex justify-between items-center text-xs">
-              <div>
-                <p className="font-bold text-white">Logistic Regression</p>
-                <p className="text-[10px] text-brand-400 font-semibold">PRODUCTION CHAMPION</p>
-              </div>
-              <span className="font-bold text-brand-400">0.8342 AUC</span>
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-xl bg-brand-600/20 border border-brand-500/40">
+              <p className="font-bold text-white">Algorithm</p>
+              <p className="text-slate-300 mt-0.5">LogisticRegression (liblinear solver)</p>
             </div>
-
-            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border flex justify-between items-center text-xs">
-              <div>
-                <p className="font-bold text-slate-300">Tuned XGBoost</p>
-                <p className="text-[10px] text-slate-400">Backend Challenger</p>
-              </div>
-              <span className="font-bold text-slate-400">0.8315 AUC</span>
+            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+              <p className="font-bold text-slate-300">Class Weighting</p>
+              <p className="text-slate-400 mt-0.5">Balanced (Cost-sensitive for default risk)</p>
             </div>
-
-            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border flex justify-between items-center text-xs">
-              <div>
-                <p className="font-bold text-slate-300">Gradient Boosting</p>
-                <p className="text-[10px] text-slate-400">Backend Challenger</p>
-              </div>
-              <span className="font-bold text-slate-400">0.8295 AUC</span>
+            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+              <p className="font-bold text-slate-300">Preprocessing</p>
+              <p className="text-slate-400 mt-0.5">SimpleImputer + StandardScaler + OneHotEncoder</p>
             </div>
-
-            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border flex justify-between items-center text-xs">
-              <div>
-                <p className="font-bold text-slate-300">Random Forest</p>
-                <p className="text-[10px] text-slate-400">Backend Challenger</p>
-              </div>
-              <span className="font-bold text-slate-400">0.8210 AUC</span>
+            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+              <p className="font-bold text-slate-300">Training Records</p>
+              <p className="text-slate-400 mt-0.5">800 cleaned records (after deduplication)</p>
             </div>
           </div>
         </div>
@@ -134,20 +115,17 @@ export default function ModelInfoPage() {
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-xs">
-          {info?.input_features.map((feat) => (
+          {(info?.input_features || [
+            "age", "monthly_income_pkr", "employment_years", "employment_type",
+            "existing_customer_years", "account_balance_pkr", "loan_amount_pkr", "loan_term_months",
+            "interest_rate_pct", "credit_score", "debt_to_income_pct", "missed_payments_12m",
+            "late_payments_24m", "number_of_open_loans", "savings_balance_pkr", "avg_monthly_transactions",
+            "avg_monthly_card_spend_pkr", "digital_logins_30d", "city_tier", "home_ownership",
+            "loan_purpose", "previous_default", "loan_to_income_ratio", "savings_to_income_ratio", "payment_stress"
+          ]).map((feat) => (
             <div key={feat} className="p-2.5 rounded-xl bg-surface/60 border border-surface-border font-mono text-slate-300 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
               <span>{feat}</span>
-            </div>
-          )) || [
-            'age', 'monthly_income_pkr', 'employment_years', 'employment_type',
-            'account_balance_pkr', 'loan_amount_pkr', 'credit_score', 'debt_to_income_pct',
-            'missed_payments_12m', 'late_payments_24m', 'savings_balance_pkr', 'city_tier',
-            'home_ownership', 'loan_purpose', 'previous_default', 'loan_to_income_ratio'
-          ].map((f) => (
-            <div key={f} className="p-2.5 rounded-xl bg-surface/60 border border-surface-border font-mono text-slate-300 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand-400" />
-              <span>{f}</span>
             </div>
           ))}
         </div>

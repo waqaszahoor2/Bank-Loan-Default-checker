@@ -16,7 +16,8 @@ import {
   AlertCircle,
   Clock,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  ShieldCheck
 } from 'lucide-react';
 import { RiskGauge } from '@/components/risk-gauge';
 import { RiskDistributionChart } from '@/components/risk-distribution-chart';
@@ -32,7 +33,7 @@ export default function DashboardPage() {
     async function loadData() {
       try {
         const data = await api.getRecentAssessments();
-        setAssessments(data);
+        setAssessments(data || []);
       } catch (err) {
         console.error('Failed to load recent assessments:', err);
       } finally {
@@ -44,12 +45,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Mobile Top Greeting Banner (Visible on mobile screens) */}
+      {/* Mobile Top Greeting Banner */}
       <div className="lg:hidden glass-card p-5 mb-2 relative overflow-hidden bg-gradient-to-r from-brand-900/40 via-surface-card to-surface-card border-brand-500/30">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white">Hello, John 👋</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Let's assess credit risk</p>
+            <h2 className="text-xl font-bold text-white">CreditRisk AI Dashboard</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Machine Learning Risk Engine</p>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-brand-600/20 border border-brand-500/40 flex items-center justify-center glow-blue">
             <Sparkles className="w-6 h-6 text-brand-400" />
@@ -57,7 +58,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Hero Header + Primary Risk Gauge Card */}
+      {/* Hero Header + Champion Status */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -66,7 +67,6 @@ export default function DashboardPage() {
       >
         {/* Banner Hero Card */}
         <div className="lg:col-span-2 glass-card p-6 lg:p-8 relative overflow-hidden flex flex-col justify-between bg-gradient-to-r from-surface-card via-surface-card to-brand-950/40 border-surface-border">
-          {/* Subtle Background Glow Accent */}
           <div className="absolute top-0 right-0 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
           
           <div className="relative z-10 space-y-3">
@@ -103,34 +103,28 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Primary Risk Gauge Widget */}
-        <div className="glass-card p-6 flex flex-col items-center justify-between bg-surface-card border-surface-border">
+        {/* Live Status Widget */}
+        <div className="glass-card p-6 flex flex-col justify-between bg-surface-card border-surface-border">
           <div className="w-full flex items-center justify-between mb-2">
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Live Champion Gauge
+              Champion Engine Status
             </h3>
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
           </div>
 
-          <RiskGauge probability={0.2435} riskLevel="Medium Risk" size="md" />
+          <div className="my-auto py-4 text-center space-y-3">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-brand-500/10 border border-brand-500/30 flex items-center justify-center text-brand-400">
+              <ShieldCheck className="w-7 h-7" />
+            </div>
+            <p className="text-base font-bold text-white">Model Engine Online</p>
+            <p className="text-xs text-slate-400">Logistic Regression (Balanced Weights)</p>
+            <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-medium">
+              ROC-AUC 0.8342 • Accuracy 77.5%
+            </div>
+          </div>
 
-          {/* Quick Metrics Under Gauge */}
-          <div className="w-full grid grid-cols-3 gap-2 pt-4 mt-2 border-t border-surface-border text-center">
-            <div>
-              <p className="text-[10px] text-slate-400">Today</p>
-              <p className="text-sm font-bold text-white">128</p>
-              <span className="text-[10px] text-emerald-400 font-medium">↑ 12%</span>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-400">High Risk</p>
-              <p className="text-sm font-bold text-rose-400">32</p>
-              <span className="text-[10px] text-rose-400 font-medium">↑ 8%</span>
-            </div>
-            <div>
-              <p className="text-[10px] text-slate-400">Approved</p>
-              <p className="text-sm font-bold text-emerald-400">96</p>
-              <span className="text-[10px] text-emerald-400 font-medium">↑ 15%</span>
-            </div>
+          <div className="w-full pt-3 border-t border-surface-border text-center text-xs text-slate-400">
+            Waiting for live assessment requests
           </div>
         </div>
       </motion.div>
@@ -187,7 +181,7 @@ export default function DashboardPage() {
         </Link>
       </motion.div>
 
-      {/* Middle Section: Recent Assessments Table + Risk Distribution Donut Chart */}
+      {/* Middle Section: Recent Assessments Table + Model Performance */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
@@ -209,176 +203,102 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-slate-400 uppercase bg-surface/80 border-b border-surface-border">
-                <tr>
-                  <th className="py-3 px-3">Customer ID</th>
-                  <th className="py-3 px-3">Name</th>
-                  <th className="py-3 px-3">Date</th>
-                  <th className="py-3 px-3">Default Prob</th>
-                  <th className="py-3 px-3">Risk Level</th>
-                  <th className="py-3 px-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border/50 text-slate-200">
-                {assessments.slice(0, 4).map((item) => (
-                  <tr key={item.customer_id} className="hover:bg-surface-hover/50 transition">
-                    <td className="py-3.5 px-3 font-semibold text-brand-400">{item.customer_id}</td>
-                    <td className="py-3.5 px-3 font-medium text-white">{item.name}</td>
-                    <td className="py-3.5 px-3 text-slate-400">{item.date}</td>
-                    <td className="py-3.5 px-3 font-bold">
-                      {item.default_probability_pct.toFixed(2)}%
-                    </td>
-                    <td className="py-3.5 px-3">
-                      <span
-                        className={
-                          item.risk_level === 'High Risk'
-                            ? 'badge-high-risk'
-                            : item.risk_level === 'Medium Risk'
-                            ? 'badge-medium-risk'
-                            : 'badge-low-risk'
-                        }
-                      >
-                        {item.risk_level}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-3 text-right">
-                      <Link
-                        href={`/results?id=${item.customer_id}`}
-                        className="px-2.5 py-1 rounded-lg bg-brand-600/20 hover:bg-brand-600/40 text-brand-400 border border-brand-500/30 text-[11px] font-semibold transition"
-                      >
-                        Review
-                      </Link>
-                    </td>
+          {assessments.length === 0 ? (
+            <div className="p-8 text-center border border-dashed border-surface-border rounded-xl">
+              <p className="text-sm font-semibold text-slate-300">No assessments yet</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Run a single assessment or CSV batch upload to view prediction results here.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="text-slate-400 uppercase bg-surface/80 border-b border-surface-border">
+                  <tr>
+                    <th className="py-3 px-3">Customer ID</th>
+                    <th className="py-3 px-3">Name</th>
+                    <th className="py-3 px-3">Date</th>
+                    <th className="py-3 px-3">Default Prob</th>
+                    <th className="py-3 px-3">Risk Level</th>
+                    <th className="py-3 px-3 text-right">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-surface-border/50 text-slate-200">
+                  {assessments.slice(0, 4).map((item) => (
+                    <tr key={item.customer_id} className="hover:bg-surface-hover/50 transition">
+                      <td className="py-3.5 px-3 font-semibold text-brand-400">{item.customer_id}</td>
+                      <td className="py-3.5 px-3 font-medium text-white">{item.name}</td>
+                      <td className="py-3.5 px-3 text-slate-400">{item.date}</td>
+                      <td className="py-3.5 px-3 font-bold">
+                        {item.default_probability_pct.toFixed(2)}%
+                      </td>
+                      <td className="py-3.5 px-3">
+                        <span
+                          className={
+                            item.risk_level === 'High Risk'
+                              ? 'badge-high-risk'
+                              : item.risk_level === 'Medium Risk'
+                              ? 'badge-medium-risk'
+                              : 'badge-low-risk'
+                          }
+                        >
+                          {item.risk_level}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-3 text-right">
+                        <Link
+                          href={`/results?id=${item.customer_id}`}
+                          className="px-2.5 py-1 rounded-lg bg-brand-600/20 hover:bg-brand-600/40 text-brand-400 border border-brand-500/30 text-[11px] font-semibold transition"
+                        >
+                          Review
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
-        {/* Risk Distribution Donut Chart */}
-        <div className="glass-card p-6 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-base font-bold text-white">Risk Distribution</h2>
-            <span className="text-xs text-slate-400">806 Dataset Samples</span>
-          </div>
-
-          <div className="my-auto py-2">
-            <RiskDistributionChart highCount={32} mediumCount={56} lowCount={40} />
-          </div>
-        </div>
-      </motion.div>
-
-      {/* Bottom Row: Data Integration Status + Latest Activity + Model Performance */}
-      <motion.div
-        initial={{ opacity: 0, y: 15 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.3 }}
-        className="grid grid-cols-1 lg:grid-cols-3 gap-6"
-      >
         {/* Data Integration Status */}
-        <div className="glass-card p-6 space-y-4">
+        <div className="glass-card p-6 space-y-4 flex flex-col justify-between">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-white">Data Integration Status</h2>
+            <h2 className="text-base font-bold text-white">Data Integration Connectors</h2>
             <Link href="/integration" className="text-xs text-brand-400 hover:underline">
               Manage
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl bg-surface/60 border border-emerald-500/30 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                <DbIcon className="w-4 h-4" />
+          <div className="space-y-2.5 my-auto">
+            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <DbIcon className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-bold text-white">PostgreSQL</span>
               </div>
-              <div>
-                <p className="text-xs font-bold text-white">PostgreSQL</p>
-                <p className="text-[10px] text-emerald-400 font-medium">Connected</p>
-              </div>
+              <span className="text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded bg-slate-800">Not Connected</span>
             </div>
 
-            <div className="p-3 rounded-xl bg-surface/60 border border-emerald-500/30 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                <Cloud className="w-4 h-4" />
+            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Cloud className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-bold text-white">BigQuery</span>
               </div>
-              <div>
-                <p className="text-xs font-bold text-white">BigQuery</p>
-                <p className="text-[10px] text-emerald-400 font-medium">Connected</p>
-              </div>
+              <span className="text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded bg-slate-800">Not Connected</span>
             </div>
 
-            <div className="p-3 rounded-xl bg-surface/60 border border-emerald-500/30 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                <Cloud className="w-4 h-4" />
+            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Cloud className="w-4 h-4 text-slate-400" />
+                <span className="text-xs font-bold text-white">AWS S3 / GCS</span>
               </div>
-              <div>
-                <p className="text-xs font-bold text-white">AWS S3</p>
-                <p className="text-[10px] text-emerald-400 font-medium">Connected</p>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-surface/60 border border-surface-border opacity-60 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400">
-                <DbIcon className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-300">Snowflake</p>
-                <p className="text-[10px] text-rose-400 font-medium">Not Connected</p>
-              </div>
+              <span className="text-[10px] text-slate-400 font-medium px-2 py-0.5 rounded bg-slate-800">Not Connected</span>
             </div>
           </div>
-        </div>
 
-        {/* Latest Activity Feed */}
-        <div className="glass-card p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-white">Latest Activity</h2>
-            <span className="text-xs text-slate-400">Live</span>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-surface-hover/50 transition">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-white truncate">Batch prediction completed</p>
-                <p className="text-[11px] text-brand-400 font-mono">customers_may_24.csv</p>
-              </div>
-              <span className="text-[10px] text-slate-500 flex-shrink-0">2 min ago</span>
-            </div>
-
-            <div className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-surface-hover/50 transition">
-              <DbIcon className="w-4 h-4 text-brand-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-white truncate">Data integration successful</p>
-                <p className="text-[11px] text-slate-400 font-mono">postgresql://bank_db</p>
-              </div>
-              <span className="text-[10px] text-slate-500 flex-shrink-0">15 min ago</span>
-            </div>
-
-            <div className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-surface-hover/50 transition">
-              <FilePlus className="w-4 h-4 text-indigo-400 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-white truncate">New assessment created</p>
-                <p className="text-[11px] text-slate-400 font-mono">CUST-10005</p>
-              </div>
-              <span className="text-[10px] text-slate-500 flex-shrink-0">32 min ago</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Model Performance (Champion) */}
-        <div className="glass-card p-6 space-y-3 flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-white">Model Performance (Champion)</h2>
-            <Link href="/model-info" className="text-xs text-brand-400 hover:underline">
-              Details
-            </Link>
-          </div>
-
-          <div className="flex-1 py-1">
-            <ModelPerformanceChart />
-          </div>
+          <p className="text-[11px] text-slate-500 text-center">
+            Connect external data sources to auto-pull customer records
+          </p>
         </div>
       </motion.div>
     </div>
