@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/index.py": {
+      "excludeFiles": "datasets/!(credit_risk_pipeline.joblib|model_metrics_and_features.json)"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",

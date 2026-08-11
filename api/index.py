@@ -31,14 +31,11 @@ app.add_middleware(
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "datasets", "credit_risk_pipeline.joblib")
 METRICS_PATH = os.path.join(BASE_DIR, "datasets", "model_metrics_and_features.json")
-EXCEL_PATH = os.path.join(BASE_DIR, "datasets", "Bank_Loan_Default_Practice_Project - Copy.xlsx")
 
 if not os.path.exists(MODEL_PATH):
     MODEL_PATH = os.path.join("datasets", "credit_risk_pipeline.joblib")
 if not os.path.exists(METRICS_PATH):
     METRICS_PATH = os.path.join("datasets", "model_metrics_and_features.json")
-if not os.path.exists(EXCEL_PATH):
-    EXCEL_PATH = os.path.join("datasets", "Bank_Loan_Default_Practice_Project - Copy.xlsx")
 
 class ModelManager:
     _instance = None
@@ -279,7 +276,6 @@ def health_check():
 @app.get("/model-info")
 @app.get("/api/model-info")
 def model_info():
-    # Real verified metrics
     return {
         "model_name": "Logistic Regression Champion",
         "model_version": "v1.0.0",
@@ -362,7 +358,6 @@ async def predict_batch(
         seen_ids.add(cust_id)
         rec["customer_id"] = cust_id
 
-        # Validate record via CustomerDataInput schema
         try:
             validated_input = CustomerDataInput(**rec).model_dump()
             res = preprocess_and_predict_single(validated_input)
@@ -469,50 +464,55 @@ def data_source_test(config: DataSourceTestInput):
 @app.get("/customers")
 @app.get("/api/customers")
 def get_sample_customers():
-    try:
-        df = pd.read_excel(EXCEL_PATH, sheet_name='Loan Data')
-        sample_df = df.head(15).copy()
-        
-        records = sample_df.to_dict(orient='records')
-        clean_records = []
-        for rec in records:
-            clean_rec = {}
-            for k, v in rec.items():
-                if pd.isna(v):
-                    clean_rec[k] = None
-                elif isinstance(v, (np.integer, int)):
-                    clean_rec[k] = int(v)
-                elif isinstance(v, (np.floating, float)):
-                    clean_rec[k] = float(v)
-                else:
-                    clean_rec[k] = str(v)
-            clean_records.append(clean_rec)
+    # In-memory sample customer records (no Excel dependency required in production)
+    sample_records = [
+        {
+            "customer_id": "CUST00001", "age": 45, "monthly_income_pkr": 125000, "employment_years": 8.0,
+            "employment_type": "Salaried", "account_balance_pkr": 450000, "loan_amount_pkr": 500000,
+            "loan_term_months": 24, "interest_rate_pct": 11.5, "credit_score": 740, "debt_to_income_pct": 22.0,
+            "missed_payments_12m": 0, "late_payments_24m": 0, "number_of_open_loans": 1, "savings_balance_pkr": 300000,
+            "avg_monthly_transactions": 45, "avg_monthly_card_spend_pkr": 35000, "digital_logins_30d": 20,
+            "city_tier": "Tier 1", "home_ownership": "Own", "loan_purpose": "Personal", "previous_default": 0
+        },
+        {
+            "customer_id": "CUST00002", "age": 29, "monthly_income_pkr": 45000, "employment_years": 1.5,
+            "employment_type": "Self-Employed", "account_balance_pkr": 35000, "loan_amount_pkr": 800000,
+            "loan_term_months": 36, "interest_rate_pct": 16.0, "credit_score": 580, "debt_to_income_pct": 52.0,
+            "missed_payments_12m": 2, "late_payments_24m": 3, "number_of_open_loans": 3, "savings_balance_pkr": 15000,
+            "avg_monthly_transactions": 12, "avg_monthly_card_spend_pkr": 18000, "digital_logins_30d": 5,
+            "city_tier": "Tier 3", "home_ownership": "Rent", "loan_purpose": "Business", "previous_default": 1
+        },
+        {
+            "customer_id": "CUST00003", "age": 34, "monthly_income_pkr": 85000, "employment_years": 4.0,
+            "employment_type": "Salaried", "account_balance_pkr": 180000, "loan_amount_pkr": 350000,
+            "loan_term_months": 18, "interest_rate_pct": 13.0, "credit_score": 690, "debt_to_income_pct": 31.0,
+            "missed_payments_12m": 0, "late_payments_24m": 1, "number_of_open_loans": 2, "savings_balance_pkr": 120000,
+            "avg_monthly_transactions": 28, "avg_monthly_card_spend_pkr": 22000, "digital_logins_30d": 14,
+            "city_tier": "Tier 2", "home_ownership": "Rent", "loan_purpose": "Auto", "previous_default": 0
+        }
+    ]
 
-        customer_list = []
-        for rec in clean_records:
-            pydantic_input = CustomerDataInput(**{k: v for k, v in rec.items() if v is not None}).model_dump()
-            pred = preprocess_and_predict_single(pydantic_input)
-            customer_list.append({
-                "customer_id": str(rec.get("customer_id", "CUST-UNKNOWN")),
-                "name": f"Customer {rec.get('customer_id')}",
-                "age": rec.get("age", 35),
-                "monthly_income_pkr": rec.get("monthly_income_pkr", 75000.0),
-                "loan_amount_pkr": rec.get("loan_amount_pkr", 250000.0),
-                "credit_score": rec.get("credit_score", 680.0),
-                "default_probability": pred["default_probability"],
-                "default_probability_pct": pred["default_probability_pct"],
-                "risk_level": pred["risk_level"],
-                "decision": "Approved" if pred["risk_level"] == "Low Risk" else ("Review" if pred["risk_level"] == "Medium Risk" else "Reject"),
-                "prediction_details": pred
-            })
+    customer_list = []
+    for rec in sample_records:
+        pred = preprocess_and_predict_single(rec)
+        customer_list.append({
+            "customer_id": rec["customer_id"],
+            "name": f"Customer {rec['customer_id']}",
+            "age": rec["age"],
+            "monthly_income_pkr": rec["monthly_income_pkr"],
+            "loan_amount_pkr": rec["loan_amount_pkr"],
+            "credit_score": rec["credit_score"],
+            "default_probability": pred["default_probability"],
+            "default_probability_pct": pred["default_probability_pct"],
+            "risk_level": pred["risk_level"],
+            "decision": "Approved" if pred["risk_level"] == "Low Risk" else ("Review" if pred["risk_level"] == "Medium Risk" else "Reject"),
+            "prediction_details": pred
+        })
 
-        return {"customers": customer_list}
-    except Exception as e:
-        return {"customers": [], "error": str(e)}
+    return {"customers": customer_list}
 
 @app.get("/results")
 @app.get("/api/results")
 def get_results_history():
-    # Honest response: Empty list until database persistence is added
     return []
 

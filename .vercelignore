@@ -1,0 +1,13 @@
+# Non-production dataset & model exclusion for Vercel bundle optimization
+datasets/Bank_Loan_Default_Practice_Project*
+datasets/random_forest_challenger_model.joblib
+datasets/gradient_boosting_challenger_model.joblib
+datasets/tuned_xgboost_challenger_model.joblib
+datasets/logistic_regression_baseline_model.joblib
+datasets/logistic_regression_challenger_model.joblib
+*.xlsx
+*.ipynb
+node_modules/
+.next/
+venv/
+__pycache__/
