@@ -1,0 +1,38 @@
+{
+    "model_name": "Logistic Regression",
+    "final_metrics": {
+        "Accuracy": 0.775,
+        "Precision": 0.3077,
+        "Recall": 0.5714,
+        "F1": 0.4,
+        "ROC-AUC": 0.8342,
+        "PR-AUC": 0.4194
+    },
+    "input_features": [
+        "age",
+        "monthly_income_pkr",
+        "employment_years",
+        "employment_type",
+        "existing_customer_years",
+        "account_balance_pkr",
+        "loan_amount_pkr",
+        "loan_term_months",
+        "interest_rate_pct",
+        "credit_score",
+        "debt_to_income_pct",
+        "missed_payments_12m",
+        "late_payments_24m",
+        "number_of_open_loans",
+        "savings_balance_pkr",
+        "avg_monthly_transactions",
+        "avg_monthly_card_spend_pkr",
+        "digital_logins_30d",
+        "city_tier",
+        "home_ownership",
+        "loan_purpose",
+        "previous_default",
+        "loan_to_income_ratio",
+        "savings_to_income_ratio",
+        "payment_stress"
+    ]
+}
