@@ -25,8 +25,8 @@ async function fetchJSON<T>(endpoint: string, options?: RequestInit): Promise<T>
     }
     return await res.json();
   } catch (error: any) {
-    // If relative path fails in standalone dev mode without Next proxy, try direct port 8000
-    if (!BASE_URL && typeof window !== 'undefined' && error.message.includes('fetch')) {
+    // Only try direct port 8000 fallback in explicit local development mode
+    if (process.env.NODE_ENV === 'development' && !BASE_URL && typeof window !== 'undefined' && error.message.includes('fetch')) {
       const fallbackUrl = `http://localhost:8000${endpoint}`;
       const res = await fetch(fallbackUrl, {
         headers: { 'Content-Type': 'application/json', ...options?.headers },
