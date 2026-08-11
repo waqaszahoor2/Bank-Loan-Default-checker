@@ -46,12 +46,117 @@ const defaultFormData: CustomerInput = {
   previous_default: 0,
 };
 
+const PRESET_CUSTOMERS: Array<{ name: string; id: string; profile: CustomerInput }> = [
+  {
+    name: 'CUST-1001 (Low Risk - Salaried Prime)',
+    id: 'CUST-1001',
+    profile: {
+      customer_id: 'CUST-1001',
+      age: 38,
+      monthly_income_pkr: 145000,
+      employment_years: 8,
+      employment_type: 'Salaried',
+      existing_customer_years: 5,
+      account_balance_pkr: 350000,
+      loan_amount_pkr: 400000,
+      loan_term_months: 24,
+      interest_rate_pct: 12.0,
+      credit_score: 760,
+      debt_to_income_pct: 18.5,
+      missed_payments_12m: 0,
+      late_payments_24m: 0,
+      number_of_open_loans: 1,
+      savings_balance_pkr: 220000,
+      avg_monthly_transactions: 45,
+      avg_monthly_card_spend_pkr: 25000,
+      digital_logins_30d: 22,
+      city_tier: 'Tier 1',
+      home_ownership: 'Own',
+      loan_purpose: 'Personal',
+      previous_default: 0
+    }
+  },
+  {
+    name: 'CUST-1002 (High Risk - Subprime Business)',
+    id: 'CUST-1002',
+    profile: {
+      customer_id: 'CUST-1002',
+      age: 27,
+      monthly_income_pkr: 42000,
+      employment_years: 1,
+      employment_type: 'Self-employed',
+      existing_customer_years: 0.5,
+      account_balance_pkr: 12000,
+      loan_amount_pkr: 600000,
+      loan_term_months: 36,
+      interest_rate_pct: 16.5,
+      credit_score: 580,
+      debt_to_income_pct: 48.0,
+      missed_payments_12m: 2,
+      late_payments_24m: 3,
+      number_of_open_loans: 3,
+      savings_balance_pkr: 8000,
+      avg_monthly_transactions: 8,
+      avg_monthly_card_spend_pkr: 9000,
+      digital_logins_30d: 3,
+      city_tier: 'Tier 3',
+      home_ownership: 'Rent',
+      loan_purpose: 'Business',
+      previous_default: 1
+    }
+  },
+  {
+    name: 'CUST-1003 (Medium Risk - Contract Professional)',
+    id: 'CUST-1003',
+    profile: {
+      customer_id: 'CUST-1003',
+      age: 31,
+      monthly_income_pkr: 88000,
+      employment_years: 3,
+      employment_type: 'Contract',
+      existing_customer_years: 2,
+      account_balance_pkr: 110000,
+      loan_amount_pkr: 300000,
+      loan_term_months: 18,
+      interest_rate_pct: 14.0,
+      credit_score: 660,
+      debt_to_income_pct: 32.0,
+      missed_payments_12m: 0,
+      late_payments_24m: 1,
+      number_of_open_loans: 2,
+      savings_balance_pkr: 75000,
+      avg_monthly_transactions: 28,
+      avg_monthly_card_spend_pkr: 16000,
+      digital_logins_30d: 14,
+      city_tier: 'Tier 2',
+      home_ownership: 'Rent',
+      loan_purpose: 'Auto',
+      previous_default: 0
+    }
+  }
+];
+
 export default function NewAssessmentPage() {
   const [formData, setFormData] = useState<CustomerInput>(defaultFormData);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const handleSelectPresetCustomer = async (custProfile: CustomerInput) => {
+    setFormData(custProfile);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.predict(custProfile);
+      setResult(res);
+      setStep(3);
+    } catch (err: any) {
+      setError(err.message || 'Failed to generate credit risk assessment.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -97,7 +202,7 @@ export default function NewAssessmentPage() {
             New Credit Risk Assessment
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Manual customer input evaluation using Logistic Regression Champion Model
+            Select a customer profile or manually enter details for instant Champion ML assessment
           </p>
         </div>
 
@@ -131,6 +236,33 @@ export default function NewAssessmentPage() {
             3. Result
           </button>
         </div>
+      </div>
+
+      {/* Customer Auto-Fill Selector Card */}
+      <div className="glass-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-brand-500/30 bg-brand-500/5">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-brand-500/20 flex items-center justify-center text-brand-400">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-xs font-bold text-white">Select Customer ID (Auto-Fill Profile)</p>
+            <p className="text-[11px] text-slate-400">Pick any customer to auto-populate all 22 features and generate immediate prediction</p>
+          </div>
+        </div>
+
+        <select
+          onChange={(e) => {
+            const found = PRESET_CUSTOMERS.find((c) => c.id === e.target.value);
+            if (found) handleSelectPresetCustomer(found.profile);
+          }}
+          defaultValue=""
+          className="px-3 py-2 rounded-xl bg-surface border border-surface-border text-xs font-semibold text-white focus:outline-none focus:border-brand-500"
+        >
+          <option value="" disabled>-- Select Customer ID --</option>
+          {PRESET_CUSTOMERS.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
 
       {error && (

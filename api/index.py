@@ -82,30 +82,123 @@ COLUMN_ALIASES = {
     'income': 'monthly_income_pkr',
     'monthly_income': 'monthly_income_pkr',
     'salary': 'monthly_income_pkr',
+    'monthly_salary': 'monthly_income_pkr',
+    'gross_income': 'monthly_income_pkr',
+    'applicant_income': 'monthly_income_pkr',
+    'client_income': 'monthly_income_pkr',
     'loan_amount': 'loan_amount_pkr',
     'loan_amt': 'loan_amount_pkr',
+    'requested_loan': 'loan_amount_pkr',
+    'principal': 'loan_amount_pkr',
+    'loan_size': 'loan_amount_pkr',
     'account_balance': 'account_balance_pkr',
+    'current_balance': 'account_balance_pkr',
+    'bank_balance': 'account_balance_pkr',
     'savings_balance': 'savings_balance_pkr',
+    'savings': 'savings_balance_pkr',
     'card_spend': 'avg_monthly_card_spend_pkr',
     'avg_card_spend': 'avg_monthly_card_spend_pkr',
     'interest_rate': 'interest_rate_pct',
+    'interest_rate_percentage': 'interest_rate_pct',
     'dti': 'debt_to_income_pct',
     'debt_to_income': 'debt_to_income_pct',
+    'debt_to_income_ratio': 'debt_to_income_pct',
     'logins': 'digital_logins_30d',
     'digital_logins': 'digital_logins_30d',
     'open_loans': 'number_of_open_loans',
+    'active_loans': 'number_of_open_loans',
     'missed_payments': 'missed_payments_12m',
-    'late_payments': 'late_payments_24m'
+    'delinquencies_12m': 'missed_payments_12m',
+    'late_payments': 'late_payments_24m',
+    'delinquencies_24m': 'late_payments_24m',
+    'cust_id': 'customer_id',
+    'client_id': 'customer_id',
+    'account_no': 'customer_id',
+    'applicant_id': 'customer_id',
+    'score': 'credit_score',
+    'fico': 'credit_score',
+    'fico_score': 'credit_score',
+    'bureau_score': 'credit_score',
+    'client_age': 'age',
+    'applicant_age': 'age',
+    'employment': 'employment_type',
+    'emp_type': 'employment_type',
+    'job_type': 'employment_type',
+    'occupation': 'employment_type',
+    'emp_years': 'employment_years',
+    'work_experience': 'employment_years',
+    'experience_years': 'employment_years',
+    'city': 'city_tier',
+    'tier': 'city_tier',
+    'housing': 'home_ownership',
+    'residence': 'home_ownership',
+    'home': 'home_ownership',
+    'purpose': 'loan_purpose',
+    'loan_use': 'loan_purpose',
+    'reason': 'loan_purpose',
+    'prev_default': 'previous_default',
+    'past_default': 'previous_default',
+    'default_history': 'previous_default'
 }
 
 def normalize_record(rec: Dict[str, Any]) -> Dict[str, Any]:
     clean_rec = {}
     for k, v in rec.items():
-        if pd.isna(v):
+        if pd.isna(v) or v is None or str(v).strip().lower() in ["nan", "null", "none", "n/a", ""]:
             continue
-        clean_key = str(k).strip().lower().replace(" ", "_")
+        clean_key = str(k).strip().lower().replace(" ", "_").replace("-", "_")
         target_key = COLUMN_ALIASES.get(clean_key, clean_key)
         clean_rec[target_key] = v
+
+    # Normalize categorical string fields
+    if "employment_type" in clean_rec:
+        emp_str = str(clean_rec["employment_type"]).strip().lower()
+        if any(x in emp_str for x in ["self", "business", "freelance", "proprietor"]):
+            clean_rec["employment_type"] = "Self-employed"
+        elif any(x in emp_str for x in ["contract", "temporary", "temp"]):
+            clean_rec["employment_type"] = "Contract"
+        elif any(x in emp_str for x in ["unemployed", "none", "jobless"]):
+            clean_rec["employment_type"] = "Unemployed"
+        else:
+            clean_rec["employment_type"] = "Salaried"
+
+    if "city_tier" in clean_rec:
+        ct_str = str(clean_rec["city_tier"]).strip().lower()
+        if "1" in ct_str or "metro" in ct_str or "tier 1" in ct_str:
+            clean_rec["city_tier"] = "Tier 1"
+        elif "2" in ct_str or "tier 2" in ct_str:
+            clean_rec["city_tier"] = "Tier 2"
+        elif "3" in ct_str or "tier 3" in ct_str:
+            clean_rec["city_tier"] = "Tier 3"
+        else:
+            clean_rec["city_tier"] = "Tier 1"
+
+    if "home_ownership" in clean_rec:
+        ho_str = str(clean_rec["home_ownership"]).strip().lower()
+        if "rent" in ho_str:
+            clean_rec["home_ownership"] = "Rent"
+        elif "mortgage" in ho_str:
+            clean_rec["home_ownership"] = "Mortgage"
+        elif "family" in ho_str or "parent" in ho_str:
+            clean_rec["home_ownership"] = "Family"
+        else:
+            clean_rec["home_ownership"] = "Own"
+
+    if "loan_purpose" in clean_rec:
+        lp_str = str(clean_rec["loan_purpose"]).strip().lower()
+        if "auto" in lp_str or "car" in lp_str or "vehicle" in lp_str:
+            clean_rec["loan_purpose"] = "Auto"
+        elif "medical" in lp_str or "health" in lp_str:
+            clean_rec["loan_purpose"] = "Medical"
+        elif "home" in lp_str or "renovate" in lp_str or "remodel" in lp_str:
+            clean_rec["loan_purpose"] = "Home Improvement"
+        elif "business" in lp_str or "commercial" in lp_str:
+            clean_rec["loan_purpose"] = "Business"
+        elif "edu" in lp_str or "study" in lp_str or "tuition" in lp_str:
+            clean_rec["loan_purpose"] = "Education"
+        else:
+            clean_rec["loan_purpose"] = "Personal"
+
     return clean_rec
 
 
@@ -149,27 +242,27 @@ def get_gcs_client():
     return None
 
 
-# --- Pydantic Data Models & Strict Schema Validation ---
+# --- Pydantic Data Models & Schema Validation ---
 class CustomerDataInput(BaseModel):
     customer_id: Optional[str] = "CUST-NEW"
-    age: float = Field(..., ge=18, le=120, example=34)
-    monthly_income_pkr: Optional[float] = Field(None, ge=0, example=75000)
-    employment_years: float = Field(0.0, ge=0, le=70, example=5.0)
+    age: float = Field(35.0, ge=18, le=120, example=34)
+    monthly_income_pkr: float = Field(75000.0, ge=0, example=75000)
+    employment_years: float = Field(3.0, ge=0, le=70, example=5.0)
     employment_type: str = Field("Salaried", example="Salaried")
-    existing_customer_years: float = Field(0.0, ge=0, example=2.0)
-    account_balance_pkr: float = Field(0.0, example=150000)
-    loan_amount_pkr: float = Field(..., gt=0, example=250000)
+    existing_customer_years: float = Field(2.0, ge=0, example=2.0)
+    account_balance_pkr: float = Field(50000.0, example=150000)
+    loan_amount_pkr: float = Field(250000.0, gt=0, example=250000)
     loan_term_months: int = Field(12, gt=0, le=360, example=12)
     interest_rate_pct: float = Field(12.5, ge=0, le=100, example=13.5)
-    credit_score: float = Field(..., ge=300, le=850, example=680)
+    credit_score: float = Field(680.0, ge=300, le=850, example=680)
     debt_to_income_pct: float = Field(25.0, ge=0, le=150, example=25.0)
     missed_payments_12m: int = Field(0, ge=0, example=0)
     late_payments_24m: int = Field(0, ge=0, example=0)
-    number_of_open_loans: int = Field(0, ge=0, example=1)
-    savings_balance_pkr: float = Field(0.0, ge=0, example=100000)
-    avg_monthly_transactions: int = Field(0, ge=0, example=30)
-    avg_monthly_card_spend_pkr: float = Field(0.0, ge=0, example=15000)
-    digital_logins_30d: int = Field(0, ge=0, example=12)
+    number_of_open_loans: int = Field(1, ge=0, example=1)
+    savings_balance_pkr: float = Field(50000.0, ge=0, example=100000)
+    avg_monthly_transactions: int = Field(20, ge=0, example=30)
+    avg_monthly_card_spend_pkr: float = Field(10000.0, ge=0, example=15000)
+    digital_logins_30d: int = Field(10, ge=0, example=12)
     city_tier: str = Field("Tier 1", example="Tier 1")
     home_ownership: str = Field("Own", example="Own")
     loan_purpose: str = Field("Personal", example="Personal")
@@ -433,10 +526,15 @@ async def predict_batch(
     if not isinstance(records, list) or len(records) == 0:
         raise HTTPException(status_code=400, detail="No valid records found in batch payload.")
 
+    total_uploaded = len(records)
+    errors = []
+    if total_uploaded > 2000:
+        errors.append(f"Evaluated first 2,000 of {total_uploaded:,} uploaded records.")
+        records = records[:2000]
+
     seen_ids = set()
     results = []
     invalid_rows = []
-    errors = []
     high_risk_count = 0
     medium_risk_count = 0
     low_risk_count = 0
