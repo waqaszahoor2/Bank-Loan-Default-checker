@@ -12,7 +12,8 @@ import {
   Search,
   Eye,
   Filter,
-  Sparkles
+  Sparkles,
+  ShieldAlert
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { BatchPredictionResponse, PredictionResult } from '@/lib/types';
@@ -25,23 +26,46 @@ export default function BatchPredictionPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const validateFile = (selectedFile: File): boolean => {
+    if (!selectedFile.name.endsWith('.csv') && !selectedFile.name.endsWith('.json')) {
+      setError('Please upload a valid CSV or JSON file.');
+      setFile(null);
+      return false;
+    }
+
+    // 4 MB file size check (Vercel Functions payload limit is ~4.5 MB)
+    if (selectedFile.size > 4 * 1024 * 1024) {
+      setError('For datasets larger than 4 MB, import through Google Cloud Storage / BigQuery.');
+      setFile(null);
+      return false;
+    }
+
+    if (selectedFile.size === 0) {
+      setError('Selected file is empty.');
+      setFile(null);
+      return false;
+    }
+
+    setError(null);
+    return true;
+  };
+
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const dropped = e.dataTransfer.files[0];
-      if (dropped.name.endsWith('.csv') || dropped.name.endsWith('.json')) {
+      if (validateFile(dropped)) {
         setFile(dropped);
-        setError(null);
-      } else {
-        setError('Please upload a valid CSV or JSON file.');
       }
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setError(null);
+      const selected = e.target.files[0];
+      if (validateFile(selected)) {
+        setFile(selected);
+      }
     }
   };
 
@@ -88,9 +112,11 @@ export default function BatchPredictionPage() {
           },
           predictions: preds,
         });
+      } else {
+        setError('No connected customer data available. Connect BigQuery or upload CSV/JSON file below.');
       }
     } catch (err: any) {
-      setError('Failed to load sample dataset.');
+      setError('Failed to load connected customer dataset.');
     } finally {
       setLoading(false);
     }
@@ -109,10 +135,10 @@ export default function BatchPredictionPage() {
         <div>
           <h1 className="text-2xl font-extrabold text-white flex items-center gap-2">
             <Layers className="w-6 h-6 text-purple-400" />
-            Batch CSV Prediction
+            Batch Prediction Hub
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Upload CSV/JSON portfolio datasets to evaluate credit risk in bulk
+            Upload CSV/JSON portfolio datasets (up to 4 MB) or stream via Google Cloud Storage / BigQuery
           </p>
         </div>
 
@@ -121,13 +147,13 @@ export default function BatchPredictionPage() {
           disabled={loading}
           className="px-4 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-semibold transition flex items-center gap-2 self-start"
         >
-          <FileSpreadsheet className="w-4 h-4" /> Load Sample Excel Data
+          <FileSpreadsheet className="w-4 h-4" /> Load Connected Customer Data
         </button>
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-3">
+          <ShieldAlert className="w-5 h-5 flex-shrink-0 text-rose-400" />
           <span>{error}</span>
         </div>
       )}
@@ -154,10 +180,13 @@ export default function BatchPredictionPage() {
             </div>
             <div>
               <p className="text-base font-bold text-white">
-                {file ? file.name : 'Upload CSV or Drag & Drop File'}
+                {file ? file.name : 'Upload CSV / JSON or Drag & Drop File'}
               </p>
               <p className="text-xs text-slate-400 mt-1">
-                Supports CSV/JSON datasets up to 10MB (25 training features)
+                Supports CSV or JSON datasets up to 4 MB for direct Vercel upload
+              </p>
+              <p className="text-[11px] text-purple-300 mt-1 font-medium">
+                For datasets larger than 4 MB, import through Google Cloud Storage / BigQuery.
               </p>
             </div>
           </label>
@@ -169,7 +198,7 @@ export default function BatchPredictionPage() {
                 disabled={loading}
                 className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-brand-600 hover:from-purple-500 hover:to-brand-500 text-white text-xs font-bold transition shadow-glow-purple flex items-center gap-2"
               >
-                {loading ? 'Executing ML Predictions...' : 'Process Batch Dataset'}
+                {loading ? 'Executing Champion ML Predictions...' : 'Process Batch Dataset'}
                 <Sparkles className="w-4 h-4" />
               </button>
             </div>
@@ -210,6 +239,19 @@ export default function BatchPredictionPage() {
             </div>
           </div>
 
+          {/* Validation Warnings Summary if any invalid rows */}
+          {batchData.invalid_rows && batchData.invalid_rows.length > 0 && (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1">
+              <p className="font-bold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400" />
+                {batchData.invalid_rows.length} row(s) skipped due to validation errors
+              </p>
+              {batchData.errors?.map((err, idx) => (
+                <p key={idx} className="text-[11px] font-mono text-amber-200">{err}</p>
+              ))}
+            </div>
+          )}
+
           {/* Table Header Controls */}
           <div className="glass-card p-6 space-y-4">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -249,7 +291,7 @@ export default function BatchPredictionPage() {
                 <tbody className="divide-y divide-surface-border/50 text-slate-200">
                   {filteredPredictions.map((row) => (
                     <tr key={row.customer_id} className="hover:bg-surface-hover/50 transition">
-                      <td className="py-3.5 px-3 font-semibold text-brand-400">{row.customer_id}</td>
+                      <td className="py-3.5 px-3 font-semibold text-brand-400 font-mono">{row.customer_id}</td>
                       <td className="py-3.5 px-3 font-bold">
                         {row.default_probability_pct.toFixed(2)}%
                       </td>
@@ -289,7 +331,7 @@ export default function BatchPredictionPage() {
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-surface-card border border-surface-border rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-surface-border pb-3">
-              <h3 className="text-base font-bold text-white">
+              <h3 className="text-base font-bold text-white font-mono">
                 Customer Breakdown: {selectedCustomer.customer_id}
               </h3>
               <button
@@ -324,7 +366,7 @@ export default function BatchPredictionPage() {
                 <p className="font-bold text-slate-300">Top Contributor Risk Factors:</p>
                 {selectedCustomer.key_risk_factors.map((f, i) => (
                   <div key={i} className="p-2.5 rounded-lg bg-surface/60 border border-surface-border">
-                    <p className="font-semibold text-white">{f.factor} ({f.impact})</p>
+                    <p className="font-semibold text-white">{f.factor}</p>
                     <p className="text-slate-400 text-[11px] mt-0.5">{f.description}</p>
                   </div>
                 ))}

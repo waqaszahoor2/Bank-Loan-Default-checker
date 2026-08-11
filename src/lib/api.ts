@@ -71,18 +71,21 @@ export const api = {
       method: 'POST',
       body: formData,
     });
-    if (!res.ok) throw new Error('Batch CSV prediction failed');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Batch prediction failed' }));
+      throw new Error(err.detail || 'Batch prediction failed');
+    }
     return await res.json();
   },
 
-  async testDataSource(config: { source_type: string; host?: string; database?: string }) {
-    return fetchJSON<{ success: boolean; message: string }>('/api/data-source/test', {
+  async testDataSource(config: { source_type: string; host?: string; database?: string; bucket?: string }) {
+    return fetchJSON<{ success: boolean; message: string; latency_ms?: number }>('/api/data-source/test', {
       method: 'POST',
       body: JSON.stringify(config),
     });
   },
 
-  async previewData(config: { source_type: string; table_name?: string }) {
+  async previewData(config: { source_type: string; table_name?: string; bucket?: string }) {
     return fetchJSON<any>('/api/data/preview', {
       method: 'POST',
       body: JSON.stringify(config),
@@ -107,7 +110,11 @@ export const api = {
     return fetchJSON<RecentAssessmentItem[]>('/api/results');
   },
 
-  async getSampleCustomers(): Promise<{ customers: any[] }> {
-    return fetchJSON<{ customers: any[] }>('/api/customers');
+  async getSampleCustomers(query?: string, limit = 25, offset = 0): Promise<{ customers: any[]; total?: number; limit?: number; offset?: number }> {
+    const params = new URLSearchParams();
+    if (query) params.append('query', query);
+    params.append('limit', limit.toString());
+    params.append('offset', offset.toString());
+    return fetchJSON<{ customers: any[]; total?: number; limit?: number; offset?: number }>(`/api/customers?${params.toString()}`);
   }
 };

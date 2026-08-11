@@ -528,12 +528,12 @@ export default function NewAssessmentPage() {
 
                       <span
                         className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
-                          factor.impact.startsWith('+')
+                          (factor.impact || '').startsWith('+')
                             ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
                             : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                         }`}
                       >
-                        {factor.impact}
+                        {factor.impact || factor.indicator_type || 'Risk Indicator'}
                       </span>
                     </div>
                   ))}

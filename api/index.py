@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import joblib
 import pandas as pd
 import numpy as np
@@ -8,6 +9,15 @@ from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Body, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ValidationError
+
+# Optional Google Cloud SDK Imports
+try:
+    from google.cloud import bigquery
+    from google.cloud import storage as gcs_storage
+    from google.oauth2 import service_account
+    HAS_GCP_SDK = True
+except ImportError:
+    HAS_GCP_SDK = False
 
 
 # --- Initialize FastAPI App ---
@@ -67,6 +77,78 @@ class ModelManager:
 model_manager = ModelManager()
 
 
+# --- Column Alias Normalization ---
+COLUMN_ALIASES = {
+    'income': 'monthly_income_pkr',
+    'monthly_income': 'monthly_income_pkr',
+    'salary': 'monthly_income_pkr',
+    'loan_amount': 'loan_amount_pkr',
+    'loan_amt': 'loan_amount_pkr',
+    'account_balance': 'account_balance_pkr',
+    'savings_balance': 'savings_balance_pkr',
+    'card_spend': 'avg_monthly_card_spend_pkr',
+    'avg_card_spend': 'avg_monthly_card_spend_pkr',
+    'interest_rate': 'interest_rate_pct',
+    'dti': 'debt_to_income_pct',
+    'debt_to_income': 'debt_to_income_pct',
+    'logins': 'digital_logins_30d',
+    'digital_logins': 'digital_logins_30d',
+    'open_loans': 'number_of_open_loans',
+    'missed_payments': 'missed_payments_12m',
+    'late_payments': 'late_payments_24m'
+}
+
+def normalize_record(rec: Dict[str, Any]) -> Dict[str, Any]:
+    clean_rec = {}
+    for k, v in rec.items():
+        if pd.isna(v):
+            continue
+        clean_key = str(k).strip().lower().replace(" ", "_")
+        target_key = COLUMN_ALIASES.get(clean_key, clean_key)
+        clean_rec[target_key] = v
+    return clean_rec
+
+
+# --- Google Cloud Platform Helper Credentials ---
+def get_gcp_credentials():
+    json_str = os.environ.get("GCP_SERVICE_ACCOUNT_JSON")
+    if json_str and HAS_GCP_SDK:
+        try:
+            info = json.loads(json_str)
+            return service_account.Credentials.from_service_account_info(info)
+        except Exception as e:
+            print(f"[GCP Credentials] Failed to parse GCP_SERVICE_ACCOUNT_JSON: {e}")
+    return None
+
+def get_bigquery_client():
+    if not HAS_GCP_SDK:
+        return None
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    creds = get_gcp_credentials()
+    if creds:
+        return bigquery.Client(credentials=creds, project=project_id or creds.project_id)
+    elif project_id:
+        try:
+            return bigquery.Client(project=project_id)
+        except Exception:
+            return None
+    return None
+
+def get_gcs_client():
+    if not HAS_GCP_SDK:
+        return None
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    creds = get_gcp_credentials()
+    if creds:
+        return gcs_storage.Client(credentials=creds, project=project_id or creds.project_id)
+    elif project_id:
+        try:
+            return gcs_storage.Client(project=project_id)
+        except Exception:
+            return None
+    return None
+
+
 # --- Pydantic Data Models & Strict Schema Validation ---
 class CustomerDataInput(BaseModel):
     customer_id: Optional[str] = "CUST-NEW"
@@ -75,12 +157,12 @@ class CustomerDataInput(BaseModel):
     employment_years: float = Field(0.0, ge=0, le=70, example=5.0)
     employment_type: str = Field("Salaried", example="Salaried")
     existing_customer_years: float = Field(0.0, ge=0, example=2.0)
-    account_balance_pkr: float = Field(0.0, example=150000) # Negative account balance permitted in training/cloud distribution
+    account_balance_pkr: float = Field(0.0, example=150000)
     loan_amount_pkr: float = Field(..., gt=0, example=250000)
     loan_term_months: int = Field(12, gt=0, le=360, example=12)
     interest_rate_pct: float = Field(12.5, ge=0, le=100, example=13.5)
     credit_score: float = Field(..., ge=300, le=850, example=680)
-    debt_to_income_pct: float = Field(25.0, ge=0, le=150, example=25.0) # DTI up to 150 permitted
+    debt_to_income_pct: float = Field(25.0, ge=0, le=150, example=25.0)
     missed_payments_12m: int = Field(0, ge=0, example=0)
     late_payments_24m: int = Field(0, ge=0, example=0)
     number_of_open_loans: int = Field(0, ge=0, example=1)
@@ -147,18 +229,12 @@ class MergeDataInput(BaseModel):
 def compute_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     
-    # Exact required formulas:
-    # 1. loan_to_income_ratio = loan_amount_pkr / monthly_income_pkr
-    # 2. savings_to_income_ratio = savings_balance_pkr / monthly_income_pkr
-    # 3. payment_stress = missed_payments_12m + late_payments_24m
-    
     income = pd.to_numeric(pd.Series(df['monthly_income_pkr'] if 'monthly_income_pkr' in df.columns else np.nan), errors='coerce')
     loan_amt = pd.to_numeric(pd.Series(df['loan_amount_pkr'] if 'loan_amount_pkr' in df.columns else np.nan), errors='coerce')
     savings = pd.to_numeric(pd.Series(df['savings_balance_pkr'] if 'savings_balance_pkr' in df.columns else np.nan), errors='coerce')
     missed = pd.to_numeric(pd.Series(df['missed_payments_12m'] if 'missed_payments_12m' in df.columns else 0), errors='coerce').fillna(0)
     late = pd.to_numeric(pd.Series(df['late_payments_24m'] if 'late_payments_24m' in df.columns else 0), errors='coerce').fillna(0)
 
-    # Safe division: if monthly_income_pkr <= 0 or NaN, set ratio to np.nan so pipeline imputer handles it
     safe_income = income.apply(lambda v: float(v) if (pd.notna(v) and float(v) > 0) else np.nan)
     
     df['loan_to_income_ratio'] = loan_amt / safe_income
@@ -168,7 +244,7 @@ def compute_engineered_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# --- Helper Functions for Inference & Risk Indicators ---
+# --- Helper Functions for Inference & Key Factors ---
 def preprocess_and_predict_single(data_dict: Dict[str, Any]):
     if model_manager.model is None:
         raise HTTPException(status_code=503, detail="Champion ML Model file is missing or not loaded.")
@@ -320,8 +396,14 @@ async def predict_batch(
     records = []
     
     if file is not None:
+        content = await file.read()
+        if len(content) > 4 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="File too large for direct Vercel upload (exceeds 4 MB limit). For datasets larger than 4 MB, import through Google Cloud Storage / BigQuery."
+            )
+            
         try:
-            content = await file.read()
             if file.filename.endswith('.csv'):
                 import io
                 df = pd.read_csv(io.BytesIO(content))
@@ -348,21 +430,25 @@ async def predict_batch(
     seen_ids = set()
     results = []
     invalid_rows = []
+    errors = []
     high_risk_count = 0
     medium_risk_count = 0
     low_risk_count = 0
     total_prob = 0.0
 
-    for idx, rec in enumerate(records):
-        if not isinstance(rec, dict):
+    for idx, raw_rec in enumerate(records):
+        if not isinstance(raw_rec, dict):
             invalid_rows.append({"row_index": idx, "error": "Invalid record object"})
             continue
+
+        rec = normalize_record(raw_rec)
 
         cust_id = str(rec.get("customer_id", "")).strip()
         if not cust_id or cust_id == "nan" or cust_id == "None":
             cust_id = f"CUST-BATCH-{idx+1}"
         elif cust_id in seen_ids:
             cust_id = f"{cust_id}-DUP-{idx+1}"
+            errors.append(f"Row {idx+1}: Duplicate customer_id '{rec.get('customer_id')}' renamed to '{cust_id}'")
         seen_ids.add(cust_id)
         rec["customer_id"] = cust_id
 
@@ -380,14 +466,18 @@ async def predict_batch(
             else:
                 low_risk_count += 1
         except ValidationError as val_err:
-            invalid_rows.append({"row_index": idx, "customer_id": cust_id, "error": str(val_err)})
+            err_msg = str(val_err)
+            invalid_rows.append({"row_index": idx, "customer_id": cust_id, "error": err_msg})
+            errors.append(f"Row {idx+1} ({cust_id}): Schema validation error - {err_msg.splitlines()[0]}")
 
-    total_count = len(results)
-    avg_prob = round(total_prob / total_count, 4) if total_count > 0 else 0.0
+    total_count = len(records)
+    valid_count = len(results)
+    avg_prob = round(total_prob / valid_count, 4) if valid_count > 0 else 0.0
 
     return {
         "summary": {
             "total_records": total_count,
+            "valid_records": valid_count,
             "invalid_records": len(invalid_rows),
             "high_risk_count": high_risk_count,
             "medium_risk_count": medium_risk_count,
@@ -396,38 +486,166 @@ async def predict_batch(
             "average_default_probability_pct": round(avg_prob * 100, 2)
         },
         "predictions": results,
-        "invalid_rows": invalid_rows
+        "invalid_rows": invalid_rows,
+        "errors": errors[:20]
     }
 
-# --- Honest External Data Source Endpoints (HTTP 501 Until Cloud Connected) ---
+
+# --- Real Google Cloud Platform Integration Endpoints ---
+
+@app.post("/data-source/test")
+@app.post("/api/data-source/test")
+def data_source_test(config: DataSourceTestInput):
+    source_type = config.source_type.lower()
+    
+    if source_type in ["bigquery"]:
+        bq_client = get_bigquery_client()
+        if bq_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail="BigQuery connector not configured. Set GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON environment variables to enable."
+            )
+        try:
+            start_time = time.time()
+            query_job = bq_client.query("SELECT 1 AS test_val")
+            query_job.result()
+            latency = round((time.time() - start_time) * 1000, 2)
+            return {
+                "success": True,
+                "source_type": "bigquery",
+                "message": f"Successfully authenticated and queried BigQuery (latency: {latency} ms).",
+                "latency_ms": latency
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Google Cloud BigQuery authentication/query failed: {str(e)}"
+            )
+
+    elif source_type in ["gcs", "google_cloud_storage"]:
+        gcs_client = get_gcs_client()
+        if gcs_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail="Google Cloud Storage connector not configured. Set GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON environment variables to enable."
+            )
+        try:
+            start_time = time.time()
+            list(gcs_client.list_buckets(max_results=1))
+            latency = round((time.time() - start_time) * 1000, 2)
+            return {
+                "success": True,
+                "source_type": "gcs",
+                "message": f"Successfully authenticated and listed GCS buckets (latency: {latency} ms).",
+                "latency_ms": latency
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Google Cloud Storage authentication failed: {str(e)}"
+            )
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"Connector '{config.source_type}' coming soon. Google BigQuery and GCS are currently available."
+        )
+
+
 @app.post("/data/preview")
 @app.post("/api/data/preview")
 def data_preview(config: DataSourceTestInput):
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Cloud data integration not configured. Google Cloud / database integration pending."
-    )
+    source_type = config.source_type.lower()
+    
+    if source_type in ["bigquery"]:
+        bq_client = get_bigquery_client()
+        if bq_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail="BigQuery integration not configured. Set GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON."
+            )
+        dataset_id = os.environ.get("GCP_BIGQUERY_DATASET", "credit_risk_dataset")
+        view_name = f"`{bq_client.project}.{dataset_id}.v_credit_risk_model_input`"
+        try:
+            query = f"SELECT * FROM {view_name} LIMIT 20"
+            df = bq_client.query(query).to_dataframe()
+            records = df.to_dict(orient="records")
+            clean_records = [{k: (None if pd.isna(v) else v) for k, v in r.items()} for r in records]
+            return {
+                "status": "connected",
+                "source_type": "bigquery",
+                "source_name": view_name,
+                "columns": list(df.columns),
+                "total_count": len(clean_records),
+                "sample_records": clean_records
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Configured BigQuery dataset/table view '{view_name}' not found or query failed: {str(e)}"
+            )
+
+    elif source_type in ["gcs", "google_cloud_storage"]:
+        gcs_client = get_gcs_client()
+        if gcs_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                detail="GCS integration not configured. Set GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON."
+            )
+        bucket_name = config.bucket or os.environ.get("GCP_GCS_BUCKET")
+        if not bucket_name:
+            raise HTTPException(status_code=400, detail="Bucket name required for GCS preview.")
+        try:
+            bucket = gcs_client.get_bucket(bucket_name)
+            blobs = list(bucket.list_blobs(max_results=5))
+            return {
+                "status": "connected",
+                "source_type": "gcs",
+                "source_name": bucket_name,
+                "columns": ["blob_name", "size_bytes", "updated"],
+                "total_count": len(blobs),
+                "sample_records": [{"blob_name": b.name, "size_bytes": b.size, "updated": str(b.updated)} for b in blobs]
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"GCS bucket '{bucket_name}' not found: {str(e)}"
+            )
+            
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"Connector '{config.source_type}' coming soon. Google BigQuery and GCS are currently available."
+        )
+
 
 @app.post("/data/validate")
 @app.post("/api/data/validate")
 def data_validate(payload: ValidateDataInput):
-    required_features = model_manager.input_features
+    all_required_model_features = model_manager.input_features
+    
+    derived_columns = ["loan_to_income_ratio", "savings_to_income_ratio", "payment_stress"]
+    required_source_features = [f for f in all_required_model_features if f not in derived_columns]
+    
     mapped_targets = list(payload.column_mapping.values())
     
-    missing = [f for f in required_features if f not in mapped_targets and f not in [
-        'loan_to_income_ratio', 'savings_to_income_ratio', 'payment_stress'
-    ]]
-    
-    match_pct = round(((len(required_features) - len(missing)) / len(required_features)) * 100, 1)
+    matched = [f for f in required_source_features if f in mapped_targets]
+    missing = [f for f in required_source_features if f not in mapped_targets]
+    extra = [col for col in payload.column_mapping.keys() if payload.column_mapping[col] not in all_required_model_features and payload.column_mapping[col] != "customer_id"]
+
+    match_pct = round((len(matched) / len(required_source_features)) * 100, 1) if required_source_features else 100.0
 
     return {
         "valid": len(missing) == 0,
         "source_type": payload.source_type,
-        "mapped_columns_count": len(payload.column_mapping),
-        "total_required_features": len(required_features),
-        "match_percentage": match_pct,
-        "missing_features": missing
+        "required_source_columns": required_source_features,
+        "derived_columns": derived_columns,
+        "matched_columns": matched,
+        "missing_columns": missing,
+        "extra_columns": extra,
+        "match_percentage": match_pct
     }
+
 
 @app.post("/data/merge")
 @app.post("/api/data/merge")
@@ -435,31 +653,118 @@ def data_merge(payload: MergeDataInput):
     prim_df = pd.DataFrame(payload.primary_dataset)
     sec_df = pd.DataFrame(payload.secondary_dataset)
 
+    if prim_df.empty and sec_df.empty:
+        raise HTTPException(status_code=400, detail="Primary and secondary datasets are both empty.")
+
     if prim_df.empty or sec_df.empty:
-        merged = payload.primary_dataset or payload.secondary_dataset
+        merged_records = payload.primary_dataset or payload.secondary_dataset
     else:
+        if payload.join_key not in prim_df.columns or payload.join_key not in sec_df.columns:
+            raise HTTPException(status_code=400, detail=f"Join key '{payload.join_key}' must exist in both datasets.")
         merged_df = pd.merge(prim_df, sec_df, on=payload.join_key, how="inner", suffixes=('', '_ext'))
-        merged = merged_df.to_dict(orient="records")
+        merged_records = merged_df.to_dict(orient="records")
+
+    # Execute Champion ML Pipeline on merged records
+    results = []
+    errors = []
+    high_risk_count = 0
+    medium_risk_count = 0
+    low_risk_count = 0
+
+    for idx, raw_rec in enumerate(merged_records):
+        try:
+            rec = normalize_record(raw_rec)
+            val_input = CustomerDataInput(**rec).model_dump()
+            res = preprocess_and_predict_single(val_input)
+            results.append(res)
+            if res["risk_level"] == "High Risk":
+                high_risk_count += 1
+            elif res["risk_level"] == "Medium Risk":
+                medium_risk_count += 1
+            else:
+                low_risk_count += 1
+        except Exception as e:
+            errors.append(f"Record {idx+1}: {str(e)}")
 
     return {
         "status": "success",
         "join_key": payload.join_key,
-        "total_merged_records": len(merged),
-        "preview": merged[:5]
+        "total_merged_records": len(merged_records),
+        "summary": {
+            "total_records": len(merged_records),
+            "predicted_records": len(results),
+            "failed_records": len(errors),
+            "high_risk_count": high_risk_count,
+            "medium_risk_count": medium_risk_count,
+            "low_risk_count": low_risk_count
+        },
+        "predictions": results,
+        "errors": errors[:10]
     }
 
-@app.post("/data-source/test")
-@app.post("/api/data-source/test")
-def data_source_test(config: DataSourceTestInput):
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Cloud data integration connector not configured. HTTP 501 returned until Google Cloud credentials are added."
-    )
 
+# --- Server-Side Customer Search & Pagination ---
 @app.get("/customers")
 @app.get("/api/customers")
-def get_sample_customers():
-    return {"customers": []}
+def get_customers(
+    query: Optional[str] = None,
+    limit: int = 25,
+    offset: int = 0
+):
+    bq_client = get_bigquery_client()
+    if bq_client is not None:
+        dataset_id = os.environ.get("GCP_BIGQUERY_DATASET", "credit_risk_dataset")
+        view_name = f"`{bq_client.project}.{dataset_id}.v_credit_risk_model_input`"
+        try:
+            if query and query.strip():
+                sql = f"SELECT * FROM {view_name} WHERE LOWER(customer_id) LIKE LOWER(@search) LIMIT @limit OFFSET @offset"
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("search", "STRING", f"%{query.strip()}%"),
+                        bigquery.ScalarQueryParameter("limit", "INT64", limit),
+                        bigquery.ScalarQueryParameter("offset", "INT64", offset),
+                    ]
+                )
+                df = bq_client.query(sql, job_config=job_config).to_dataframe()
+            else:
+                sql = f"SELECT * FROM {view_name} LIMIT @limit OFFSET @offset"
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("limit", "INT64", limit),
+                        bigquery.ScalarQueryParameter("offset", "INT64", offset),
+                    ]
+                )
+                df = bq_client.query(sql, job_config=job_config).to_dataframe()
+
+            records = df.to_dict(orient='records')
+            customer_list = []
+            for raw_rec in records:
+                try:
+                    rec = normalize_record({k: v for k, v in raw_rec.items() if pd.notna(v)})
+                    pydantic_input = CustomerDataInput(**rec).model_dump()
+                    pred = preprocess_and_predict_single(pydantic_input)
+                    customer_list.append({
+                        "customer_id": str(rec.get("customer_id", "CUST-UNKNOWN")),
+                        "name": f"Customer {rec.get('customer_id')}",
+                        "age": rec.get("age", 35),
+                        "monthly_income_pkr": rec.get("monthly_income_pkr", 75000.0),
+                        "loan_amount_pkr": rec.get("loan_amount_pkr", 250000.0),
+                        "credit_score": rec.get("credit_score", 680.0),
+                        "default_probability": pred["default_probability"],
+                        "default_probability_pct": pred["default_probability_pct"],
+                        "risk_level": pred["risk_level"],
+                        "decision": "Approved" if pred["risk_level"] == "Low Risk" else ("Review" if pred["risk_level"] == "Medium Risk" else "Reject"),
+                        "prediction_details": pred
+                    })
+                except Exception:
+                    pass
+
+            return {"customers": customer_list, "total": len(customer_list), "limit": limit, "offset": offset}
+        except Exception as e:
+            print(f"[BigQuery Customers] Query error: {e}")
+            return {"customers": [], "total": 0, "limit": limit, "offset": offset}
+
+    return {"customers": [], "total": 0, "limit": limit, "offset": offset}
 
 @app.get("/results")
 @app.get("/api/results")
