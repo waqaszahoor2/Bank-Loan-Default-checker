@@ -20,8 +20,20 @@ async function fetchJSON<T>(endpoint: string, options?: RequestInit): Promise<T>
       ...options,
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'API request failed' }));
-      throw new Error(err.detail || `HTTP Error ${res.status}`);
+      const raw = await res.text();
+
+      let detail = `API request failed (HTTP ${res.status})`;
+
+      try {
+        const parsed = JSON.parse(raw);
+        detail = parsed.detail || parsed.message || detail;
+      } catch {
+        if (raw) {
+          detail = `${detail}: ${raw.slice(0, 300)}`;
+        }
+      }
+
+      throw new Error(detail);
     }
     return await res.json();
   } catch (error: any) {

@@ -6,9 +6,41 @@ import joblib
 import pandas as pd
 import numpy as np
 import io
+
+from typing import List, Dict, Any, Optional
+
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    UploadFile,
+    File,
+    Body,
+    Request,
+    status,
+)
+from fastapi.middleware.cors import CORSMiddleware
+
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    ValidationError,
+)
+
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, GradientBoostingRegressor
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, r2_score, mean_absolute_error
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    GradientBoostingClassifier,
+    GradientBoostingRegressor,
+)
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    r2_score,
+    mean_absolute_error,
+)
 from sklearn.cluster import KMeans
 
 # Optional Google Cloud SDK Imports
@@ -928,7 +960,21 @@ async def automl_inspect(
     cols_summary = []
     target_candidates = []
 
-    TARGET_KEYWORDS = ["target", "label", "default", "churn", "status", "fraud", "outcome", "price", "sales", "revenue", "class", "approved", "risk", "y"]
+    TARGET_KEYWORDS = [
+        "target",
+        "label",
+        "default",
+        "churn",
+        "status",
+        "fraud",
+        "outcome",
+        "price",
+        "sales",
+        "revenue",
+        "class",
+        "approved",
+        "risk",
+    ]
 
     for col in df.columns:
         col_str = str(col)
@@ -956,6 +1002,10 @@ async def automl_inspect(
                 if kw in col_lower:
                     target_score += 40
                     reason += f"Name matches '{kw}'; "
+
+            if col_lower == "y":
+                target_score += 40
+                reason += "Common ML target name 'y'; "
             if n_unique == 2:
                 target_score += 35
                 reason += "Binary variable (2 unique values); "
