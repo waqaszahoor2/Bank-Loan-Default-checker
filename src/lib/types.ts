@@ -136,15 +136,26 @@ export interface FeatureImportanceItem {
   importance: number;
 }
 
+export interface ModelComparisonItem {
+  model: string;
+  metric: string;
+  score: number;
+  selected: boolean;
+}
+
 export interface AutoMLResult {
   task_type: 'binary' | 'multiclass' | 'regression' | 'unsupervised';
   target_column?: string | null;
   best_algorithm: string;
   metrics: Record<string, number>;
+  compared_models?: ModelComparisonItem[];
   feature_importances: FeatureImportanceItem[];
   predictions: Record<string, any>[];
-  total_records: number;
+  total_uploaded_rows?: number;
+  total_analyzed_rows?: number;
   train_rows: number;
   test_rows: number;
+  predicted_rows?: number;
+  failed_rows?: number;
   csv_content: string;
 }

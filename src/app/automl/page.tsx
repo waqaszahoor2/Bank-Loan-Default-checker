@@ -421,6 +421,30 @@ export default function UniversalAutoMLPage() {
               </button>
             </div>
 
+            {/* Record Statistics Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+              <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+                <p className="text-[10px] text-slate-400">Total Uploaded</p>
+                <p className="font-bold text-white mt-0.5">{autoMLResult.total_uploaded_rows || autoMLResult.predictions.length}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+                <p className="text-[10px] text-slate-400">Analyzed Rows</p>
+                <p className="font-bold text-white mt-0.5">{autoMLResult.total_analyzed_rows || autoMLResult.predictions.length}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+                <p className="text-[10px] text-slate-400">Train Rows (X_train)</p>
+                <p className="font-bold text-brand-300 mt-0.5">{autoMLResult.train_rows}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+                <p className="text-[10px] text-slate-400">Test Rows (X_test)</p>
+                <p className="font-bold text-brand-300 mt-0.5">{autoMLResult.test_rows}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-surface/60 border border-surface-border">
+                <p className="text-[10px] text-slate-400">Predicted Rows</p>
+                <p className="font-bold text-emerald-400 mt-0.5">{autoMLResult.predicted_rows || autoMLResult.predictions.length}</p>
+              </div>
+            </div>
+
             {/* Metrics Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
               {Object.entries(autoMLResult.metrics).map(([key, val]) => (
@@ -431,6 +455,47 @@ export default function UniversalAutoMLPage() {
               ))}
             </div>
           </div>
+
+          {/* Model Comparison Table */}
+          {autoMLResult.compared_models && autoMLResult.compared_models.length > 0 && (
+            <div className="glass-card p-5 space-y-3">
+              <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-brand-400" />
+                AutoML Algorithm Comparison & Evaluation
+              </h4>
+
+              <div className="overflow-x-auto rounded-xl border border-surface-border">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-slate-400 uppercase bg-surface/80 border-b border-surface-border">
+                    <tr>
+                      <th className="py-2.5 px-3">Algorithm Model</th>
+                      <th className="py-2.5 px-3">Evaluation Metric</th>
+                      <th className="py-2.5 px-3">Test Score</th>
+                      <th className="py-2.5 px-3 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-border/50 text-slate-200">
+                    {autoMLResult.compared_models.map((cand) => (
+                      <tr key={cand.model} className={cand.selected ? 'bg-brand-500/10 font-bold' : ''}>
+                        <td className="py-2.5 px-3">{cand.model}</td>
+                        <td className="py-2.5 px-3 font-mono">{cand.metric}</td>
+                        <td className="py-2.5 px-3 font-mono text-emerald-400">{cand.score}</td>
+                        <td className="py-2.5 px-3 text-right">
+                          {cand.selected ? (
+                            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] uppercase font-extrabold">
+                              ★ Champion Selected
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 text-[11px]">Evaluated</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Top Feature Importance */}
           {autoMLResult.feature_importances && autoMLResult.feature_importances.length > 0 && (

@@ -28,10 +28,13 @@ from pydantic import (
 )
 
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.ensemble import (
     RandomForestClassifier,
     GradientBoostingClassifier,
+    RandomForestRegressor,
     GradientBoostingRegressor,
+    IsolationForest,
 )
 from sklearn.metrics import (
     accuracy_score,
@@ -512,11 +515,48 @@ def model_info():
         }
     }
 
+RESULTS_HISTORY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "datasets", "results_history.json")
+
+def load_results_history() -> List[Dict[str, Any]]:
+    try:
+        norm_path = os.path.normpath(RESULTS_HISTORY_PATH)
+        if os.path.exists(norm_path):
+            with open(norm_path, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[Results History] Load error: {e}")
+    return []
+
+def save_result_item(item: Dict[str, Any]):
+    try:
+        norm_path = os.path.normpath(RESULTS_HISTORY_PATH)
+        history = load_results_history()
+        history = [h for h in history if h.get("customer_id") != item.get("customer_id")]
+        history.insert(0, item)
+        history = history[:100]
+        os.makedirs(os.path.dirname(norm_path), exist_ok=True)
+        with open(norm_path, "w") as f:
+            json.dump(history, f, indent=2)
+    except Exception as e:
+        print(f"[Results History] Save error: {e}")
+
 @app.post("/predict")
 @app.post("/api/predict")
 def predict(customer_data: CustomerDataInput):
     data_dict = customer_data.model_dump()
     result = preprocess_and_predict_single(data_dict)
+    
+    history_item = {
+        "customer_id": str(result.get("customer_id", "CUST-NEW")),
+        "name": f"Customer {result.get('customer_id', 'Assessment')}",
+        "date": time.strftime("%Y-%m-%d %H:%M"),
+        "default_probability": result.get("default_probability", 0.0),
+        "default_probability_pct": result.get("default_probability_pct", 0.0),
+        "risk_level": result.get("risk_level", "Low Risk"),
+        "decision": "Approved" if result.get("risk_level") == "Low Risk" else ("Review" if result.get("risk_level") == "Medium Risk" else "Reject"),
+        "loan_amount": f"PKR {data_dict.get('loan_amount_pkr', 250000):,.0f}"
+    }
+    save_result_item(history_item)
     return result
 
 @app.post("/predict-batch")
@@ -906,7 +946,7 @@ def get_customers(
 @app.get("/results")
 @app.get("/api/results")
 def get_results_history():
-    return []
+    return load_results_history()
 
 
 # --- Universal Dataset & AutoML Engine ---
@@ -1120,7 +1160,11 @@ def automl_train_predict(input_data: AutoMLTrainInput):
     best_algo = ""
     metrics = {}
     feature_importances = []
+    compared_models = []
     results_df = df.copy()
+
+    train_rows_count = 0
+    test_rows_count = 0
 
     if task_type in ["binary", "multiclass"] and target_col and target_col in df.columns:
         train_mask = df[target_col].notna()
@@ -1131,39 +1175,65 @@ def automl_train_predict(input_data: AutoMLTrainInput):
             raise HTTPException(status_code=400, detail="Dataset must contain at least 6 valid target rows for supervised training.")
 
         X_train, X_test, y_train, y_test = train_test_split(X_train_full, y_full, test_size=0.2, random_state=42)
+        train_rows_count = int(len(X_train))
+        test_rows_count = int(len(X_test))
 
-        if task_type == "binary":
-            model = RandomForestClassifier(n_estimators=50, random_state=42)
-            model.fit(X_train, y_train)
-            best_algo = "Random Forest Classifier (AutoML)"
+        # Model Comparison Candidates
+        candidates = [
+            ("Random Forest Classifier", RandomForestClassifier(n_estimators=50, random_state=42)),
+            ("Gradient Boosting Classifier", GradientBoostingClassifier(n_estimators=50, random_state=42)),
+            ("Logistic Regression", LogisticRegression(max_iter=500, random_state=42))
+        ]
 
-            y_pred = model.predict(X_test)
-            acc = round(float(accuracy_score(y_test, y_pred)), 4)
-            f1 = round(float(f1_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
-            prec = round(float(precision_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
-            rec = round(float(recall_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
-            metrics = {"Accuracy": acc, "F1-Score": f1, "Precision": prec, "Recall": rec}
+        best_score = -1.0
+        best_model = None
 
-            all_preds = model.predict(X_mat)
-            all_probs = model.predict_proba(X_mat)
-            max_probs = [round(float(np.max(p)) * 100, 2) for p in all_probs]
+        for name, cand_model in candidates:
+            try:
+                cand_model.fit(X_train, y_train)
+                cand_pred = cand_model.predict(X_test)
+                score = float(f1_score(y_test, cand_pred, average='weighted', zero_division=0))
+                is_sel = False
+                if score > best_score or best_model is None:
+                    best_score = score
+                    best_model = cand_model
+                    best_algo = f"{name} (AutoML)"
 
-            results_df["predicted_label"] = all_preds
-            results_df["prediction_confidence_pct"] = max_probs
-        else:
-            model = RandomForestClassifier(n_estimators=50, random_state=42)
-            model.fit(X_train, y_train)
-            best_algo = "Random Forest Multiclass (AutoML)"
+                compared_models.append({
+                    "model": name,
+                    "metric": "F1-Score",
+                    "score": round(score, 4),
+                    "selected": False
+                })
+            except Exception as e:
+                print(f"[AutoML Candidate Error] {name}: {e}")
 
-            y_pred = model.predict(X_test)
-            acc = round(float(accuracy_score(y_test, y_pred)), 4)
-            f1 = round(float(f1_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
-            metrics = {"Accuracy": acc, "F1-Score": f1}
+        # Mark selected model
+        for item in compared_models:
+            if item["model"] in best_algo:
+                item["selected"] = True
+                break
 
-            results_df["predicted_label"] = model.predict(X_mat)
+        y_pred = best_model.predict(X_test)
+        acc = round(float(accuracy_score(y_test, y_pred)), 4)
+        f1 = round(float(f1_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+        prec = round(float(precision_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+        rec = round(float(recall_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+        metrics = {"Accuracy": acc, "F1-Score": f1, "Precision": prec, "Recall": rec}
 
-        if hasattr(model, "feature_importances_"):
-            imps = model.feature_importances_
+        all_preds = best_model.predict(X_mat)
+        results_df["predicted_label"] = all_preds
+
+        if hasattr(best_model, "predict_proba"):
+            try:
+                all_probs = best_model.predict_proba(X_mat)
+                max_probs = [round(float(np.max(p)) * 100, 2) for p in all_probs]
+                results_df["prediction_confidence_pct"] = max_probs
+            except Exception:
+                pass
+
+        if hasattr(best_model, "feature_importances_"):
+            imps = best_model.feature_importances_
             feat_imp = sorted(zip(X_encoded.columns, imps), key=lambda x: x[1], reverse=True)[:10]
             feature_importances = [{"feature": str(f), "importance": round(float(imp), 4)} for f, imp in feat_imp]
 
@@ -1176,31 +1246,91 @@ def automl_train_predict(input_data: AutoMLTrainInput):
             raise HTTPException(status_code=400, detail="Dataset must contain at least 6 valid numeric target rows for regression.")
 
         X_train, X_test, y_train, y_test = train_test_split(X_train_full, y_full, test_size=0.2, random_state=42)
+        train_rows_count = int(len(X_train))
+        test_rows_count = int(len(X_test))
 
-        model = GradientBoostingRegressor(n_estimators=50, random_state=42)
-        model.fit(X_train, y_train)
-        best_algo = "Gradient Boosting Regressor (AutoML)"
+        candidates = [
+            ("Gradient Boosting Regressor", GradientBoostingRegressor(n_estimators=50, random_state=42)),
+            ("Random Forest Regressor", RandomForestRegressor(n_estimators=50, random_state=42)),
+            ("Ridge Regression", Ridge(random_state=42))
+        ]
 
-        y_pred = model.predict(X_test)
+        best_score = -999.0
+        best_model = None
+
+        for name, cand_model in candidates:
+            try:
+                cand_model.fit(X_train, y_train)
+                cand_pred = cand_model.predict(X_test)
+                score = float(r2_score(y_test, cand_pred))
+                if score > best_score or best_model is None:
+                    best_score = score
+                    best_model = cand_model
+                    best_algo = f"{name} (AutoML)"
+
+                compared_models.append({
+                    "model": name,
+                    "metric": "R2-Score",
+                    "score": round(max(0.0, score), 4),
+                    "selected": False
+                })
+            except Exception as e:
+                print(f"[AutoML Candidate Error] {name}: {e}")
+
+        for item in compared_models:
+            if item["model"] in best_algo:
+                item["selected"] = True
+                break
+
+        y_pred = best_model.predict(X_test)
         r2 = round(float(r2_score(y_test, y_pred)), 4)
         mae = round(float(mean_absolute_error(y_test, y_pred)), 4)
         metrics = {"R2-Score": max(0.0, r2), "MAE": mae}
 
-        results_df["predicted_value"] = [round(float(v), 2) for v in model.predict(X_mat)]
+        results_df["predicted_value"] = [round(float(v), 2) for v in best_model.predict(X_mat)]
 
-        if hasattr(model, "feature_importances_"):
-            imps = model.feature_importances_
+        if hasattr(best_model, "feature_importances_"):
+            imps = best_model.feature_importances_
             feat_imp = sorted(zip(X_encoded.columns, imps), key=lambda x: x[1], reverse=True)[:10]
             feature_importances = [{"feature": str(f), "importance": round(float(imp), 4)} for f, imp in feat_imp]
 
     else:
         task_type = "unsupervised"
-        kmeans = KMeans(n_clusters=min(3, max(2, total_records // 5)), random_state=42, n_init=10)
-        clusters = kmeans.fit_predict(X_mat)
+        kmeans_success = False
+        iso_success = False
 
-        best_algo = "K-Means Clustering & Isolation Forest (Unsupervised)"
-        results_df["cluster_id"] = [f"Cluster {c+1}" for c in clusters]
-        metrics = {"Clusters": len(set(clusters)), "Features_Analyzed": len(feature_cols)}
+        try:
+            kmeans = KMeans(n_clusters=min(3, max(2, total_records // 5)), random_state=42, n_init=10)
+            clusters = kmeans.fit_predict(X_mat)
+            results_df["cluster_id"] = [f"Cluster {c+1}" for c in clusters]
+            kmeans_success = True
+        except Exception as e:
+            print(f"[KMeans Error]: {e}")
+
+        try:
+            iso_forest = IsolationForest(random_state=42, contamination=0.1)
+            anom_preds = iso_forest.fit_predict(X_mat)
+            anom_scores = iso_forest.decision_function(X_mat)
+            results_df["anomaly_status"] = ["Anomaly" if a == -1 else "Normal" for a in anom_preds]
+            results_df["anomaly_score"] = [round(float(s), 4) for s in anom_scores]
+            iso_success = True
+        except Exception as e:
+            print(f"[IsolationForest Error]: {e}")
+
+        if kmeans_success and iso_success:
+            best_algo = "K-Means Clustering & Isolation Forest (Unsupervised)"
+        elif kmeans_success:
+            best_algo = "K-Means Clustering (Unsupervised)"
+        elif iso_success:
+            best_algo = "Isolation Forest Anomaly Detection (Unsupervised)"
+        else:
+            best_algo = "Unsupervised Pattern Analysis"
+
+        metrics = {
+            "Clusters": len(results_df["cluster_id"].unique()) if "cluster_id" in results_df else 0,
+            "Anomalies_Detected": int((results_df["anomaly_status"] == "Anomaly").sum()) if "anomaly_status" in results_df else 0,
+            "Features_Analyzed": len(feature_cols)
+        }
 
     pred_records = results_df.to_dict(orient='records')
     csv_buf = io.StringIO()
@@ -1212,11 +1342,15 @@ def automl_train_predict(input_data: AutoMLTrainInput):
         "target_column": target_col,
         "best_algorithm": best_algo,
         "metrics": metrics,
+        "compared_models": compared_models,
         "feature_importances": feature_importances,
         "predictions": pred_records[:100],
-        "total_records": total_records,
-        "train_rows": int(total_records * 0.8),
-        "test_rows": int(total_records * 0.2),
+        "total_uploaded_rows": total_records,
+        "total_analyzed_rows": len(X_mat),
+        "train_rows": train_rows_count,
+        "test_rows": test_rows_count,
+        "predicted_rows": len(results_df),
+        "failed_rows": 0,
         "csv_content": csv_str
     }
 

@@ -1,0 +1,12 @@
+[
+  {
+    "customer_id": "CUST-PERSIST-99",
+    "name": "Customer CUST-PERSIST-99",
+    "date": "2026-08-12 23:47",
+    "default_probability": 0.1951,
+    "default_probability_pct": 19.51,
+    "risk_level": "Low Risk",
+    "decision": "Approved",
+    "loan_amount": "PKR 500,000"
+  }
+]
