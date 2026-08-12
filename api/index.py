@@ -5,10 +5,11 @@ import time
 import joblib
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, Body, Request, status
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator, ValidationError
+import io
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, GradientBoostingRegressor
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, r2_score, mean_absolute_error
+from sklearn.cluster import KMeans
 
 # Optional Google Cloud SDK Imports
 try:
@@ -874,4 +875,298 @@ def get_customers(
 @app.get("/api/results")
 def get_results_history():
     return []
+
+
+# --- Universal Dataset & AutoML Engine ---
+
+class AutoMLTrainInput(BaseModel):
+    records: List[Dict[str, Any]]
+    target_column: Optional[str] = None
+    task_type: Optional[str] = None
+
+@app.post("/automl/inspect")
+@app.post("/api/automl/inspect")
+async def automl_inspect(
+    request: Request,
+    file: Optional[UploadFile] = File(None)
+):
+    records = []
+    filename = "uploaded_dataset.csv"
+
+    if file is not None:
+        filename = file.filename or "uploaded_dataset.csv"
+        content = await file.read()
+        try:
+            if filename.endswith('.csv'):
+                df = pd.read_csv(io.BytesIO(content))
+                records = df.to_dict(orient='records')
+            elif filename.endswith('.json'):
+                records = json.loads(content.decode('utf-8'))
+            else:
+                raise HTTPException(status_code=400, detail="Only CSV or JSON files are supported.")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse dataset: {str(e)}")
+    else:
+        try:
+            body = await request.json()
+            if isinstance(body, list):
+                records = body
+            elif isinstance(body, dict) and "records" in body:
+                records = body["records"]
+                filename = body.get("filename", "uploaded_dataset.json")
+        except Exception:
+            raise HTTPException(status_code=400, detail="File upload or JSON records payload required.")
+
+    if not isinstance(records, list) or len(records) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded dataset contains no readable records.")
+
+    df = pd.DataFrame(records)
+    total_rows = len(df)
+    total_cols = len(df.columns)
+    dup_rows = int(df.duplicated().sum())
+
+    cols_summary = []
+    target_candidates = []
+
+    TARGET_KEYWORDS = ["target", "label", "default", "churn", "status", "fraud", "outcome", "price", "sales", "revenue", "class", "approved", "risk", "y"]
+
+    for col in df.columns:
+        col_str = str(col)
+        col_lower = col_str.lower().strip()
+        series = df[col]
+        non_null = series.dropna()
+        n_unique = int(series.nunique(dropna=True))
+        n_missing = int(series.isna().sum())
+        missing_pct = round((n_missing / total_rows) * 100, 2) if total_rows > 0 else 0.0
+        sample_vals = [x if not pd.isna(x) else None for x in non_null.head(5).tolist()]
+
+        if pd.api.types.is_numeric_dtype(series):
+            d_type = "numeric"
+        elif pd.api.types.is_datetime64_any_dtype(series):
+            d_type = "datetime"
+        else:
+            d_type = "categorical"
+
+        is_id = any(k in col_lower for k in ["customer_id", "cust_id", "user_id", "account_id", "guid", "uuid"]) or (col_lower == "id") or (n_unique == total_rows and d_type != "numeric")
+        
+        target_score = 0
+        reason = ""
+        if not is_id:
+            for kw in TARGET_KEYWORDS:
+                if kw in col_lower:
+                    target_score += 40
+                    reason += f"Name matches '{kw}'; "
+            if n_unique == 2:
+                target_score += 35
+                reason += "Binary variable (2 unique values); "
+            elif 3 <= n_unique <= 15:
+                target_score += 20
+                reason += f"Discrete category ({n_unique} unique values); "
+            elif d_type == "numeric" and n_unique > 15:
+                target_score += 15
+                reason += "Continuous numeric column; "
+
+        is_target_cand = target_score >= 20 and not is_id
+
+        summary_item = {
+            "name": col_str,
+            "data_type": d_type,
+            "unique_count": n_unique,
+            "missing_count": n_missing,
+            "missing_pct": missing_pct,
+            "sample_values": sample_vals,
+            "is_id_candidate": is_id,
+            "is_target_candidate": is_target_cand,
+            "target_score": target_score,
+            "reason": reason.strip("; ")
+        }
+        cols_summary.append(summary_item)
+
+        if is_target_cand:
+            target_candidates.append(summary_item)
+
+    target_candidates.sort(key=lambda x: x["target_score"], reverse=True)
+
+    suggested_task = "unsupervised"
+    if target_candidates:
+        top_cand = target_candidates[0]
+        if top_cand["unique_count"] == 2:
+            suggested_task = "binary"
+        elif 3 <= top_cand["unique_count"] <= 15:
+            suggested_task = "multiclass"
+        elif top_cand["data_type"] == "numeric":
+            suggested_task = "regression"
+
+    credit_risk_keys = ["monthly_income_pkr", "loan_amount_pkr", "credit_score", "debt_to_income_pct"]
+    is_credit_schema = all(any(k in str(c).lower() for c in df.columns) for k in credit_risk_keys)
+
+    return {
+        "filename": filename,
+        "total_rows": total_rows,
+        "total_columns": total_cols,
+        "duplicate_rows": dup_rows,
+        "columns": cols_summary,
+        "target_candidates": target_candidates,
+        "suggested_task": suggested_task,
+        "sample_records": records[:10],
+        "is_credit_risk_schema": is_credit_schema
+    }
+
+
+@app.post("/automl/train-predict")
+@app.post("/api/automl/train-predict")
+def automl_train_predict(input_data: AutoMLTrainInput):
+    records = input_data.records
+    if not records or len(records) == 0:
+        raise HTTPException(status_code=400, detail="Records payload cannot be empty.")
+
+    df = pd.DataFrame(records)
+    total_records = len(df)
+    target_col = input_data.target_column
+
+    ignore_cols = set()
+    for col in df.columns:
+        col_lower = str(col).lower()
+        if col_lower in ["id", "customer_id", "user_id", "uuid", "created_at", "timestamp"]:
+            ignore_cols.add(col)
+
+    if target_col and target_col in df.columns:
+        ignore_cols.add(target_col)
+
+    feature_cols = [c for c in df.columns if c not in ignore_cols]
+    if len(feature_cols) == 0:
+        raise HTTPException(status_code=400, detail="No suitable feature columns remaining for modeling.")
+
+    task_type = input_data.task_type
+    if not task_type:
+        if target_col and target_col in df.columns:
+            u_count = df[target_col].nunique(dropna=True)
+            if u_count == 2:
+                task_type = "binary"
+            elif 3 <= u_count <= 15:
+                task_type = "multiclass"
+            else:
+                task_type = "regression"
+        else:
+            task_type = "unsupervised"
+
+    X_df = df[feature_cols].copy()
+    num_cols = X_df.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = X_df.select_dtypes(exclude=[np.number]).columns.tolist()
+
+    for col in num_cols:
+        med = X_df[col].median()
+        X_df[col] = X_df[col].fillna(med if pd.notna(med) else 0)
+
+    for col in cat_cols:
+        X_df[col] = X_df[col].fillna("Missing").astype(str)
+
+    if cat_cols:
+        X_encoded = pd.get_dummies(X_df, columns=cat_cols, drop_first=True)
+    else:
+        X_encoded = X_df.copy()
+
+    X_mat = X_encoded.values
+    best_algo = ""
+    metrics = {}
+    feature_importances = []
+    results_df = df.copy()
+
+    if task_type in ["binary", "multiclass"] and target_col and target_col in df.columns:
+        train_mask = df[target_col].notna()
+        X_train_full = X_mat[train_mask]
+        y_full = df.loc[train_mask, target_col].astype(str).values
+
+        if len(y_full) < 6:
+            raise HTTPException(status_code=400, detail="Dataset must contain at least 6 valid target rows for supervised training.")
+
+        X_train, X_test, y_train, y_test = train_test_split(X_train_full, y_full, test_size=0.2, random_state=42)
+
+        if task_type == "binary":
+            model = RandomForestClassifier(n_estimators=50, random_state=42)
+            model.fit(X_train, y_train)
+            best_algo = "Random Forest Classifier (AutoML)"
+
+            y_pred = model.predict(X_test)
+            acc = round(float(accuracy_score(y_test, y_pred)), 4)
+            f1 = round(float(f1_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+            prec = round(float(precision_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+            rec = round(float(recall_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+            metrics = {"Accuracy": acc, "F1-Score": f1, "Precision": prec, "Recall": rec}
+
+            all_preds = model.predict(X_mat)
+            all_probs = model.predict_proba(X_mat)
+            max_probs = [round(float(np.max(p)) * 100, 2) for p in all_probs]
+
+            results_df["predicted_label"] = all_preds
+            results_df["prediction_confidence_pct"] = max_probs
+        else:
+            model = RandomForestClassifier(n_estimators=50, random_state=42)
+            model.fit(X_train, y_train)
+            best_algo = "Random Forest Multiclass (AutoML)"
+
+            y_pred = model.predict(X_test)
+            acc = round(float(accuracy_score(y_test, y_pred)), 4)
+            f1 = round(float(f1_score(y_test, y_pred, average='weighted', zero_division=0)), 4)
+            metrics = {"Accuracy": acc, "F1-Score": f1}
+
+            results_df["predicted_label"] = model.predict(X_mat)
+
+        if hasattr(model, "feature_importances_"):
+            imps = model.feature_importances_
+            feat_imp = sorted(zip(X_encoded.columns, imps), key=lambda x: x[1], reverse=True)[:10]
+            feature_importances = [{"feature": str(f), "importance": round(float(imp), 4)} for f, imp in feat_imp]
+
+    elif task_type == "regression" and target_col and target_col in df.columns:
+        train_mask = pd.to_numeric(df[target_col], errors='coerce').notna()
+        X_train_full = X_mat[train_mask]
+        y_full = pd.to_numeric(df.loc[train_mask, target_col], errors='coerce').values
+
+        if len(y_full) < 6:
+            raise HTTPException(status_code=400, detail="Dataset must contain at least 6 valid numeric target rows for regression.")
+
+        X_train, X_test, y_train, y_test = train_test_split(X_train_full, y_full, test_size=0.2, random_state=42)
+
+        model = GradientBoostingRegressor(n_estimators=50, random_state=42)
+        model.fit(X_train, y_train)
+        best_algo = "Gradient Boosting Regressor (AutoML)"
+
+        y_pred = model.predict(X_test)
+        r2 = round(float(r2_score(y_test, y_pred)), 4)
+        mae = round(float(mean_absolute_error(y_test, y_pred)), 4)
+        metrics = {"R2-Score": max(0.0, r2), "MAE": mae}
+
+        results_df["predicted_value"] = [round(float(v), 2) for v in model.predict(X_mat)]
+
+        if hasattr(model, "feature_importances_"):
+            imps = model.feature_importances_
+            feat_imp = sorted(zip(X_encoded.columns, imps), key=lambda x: x[1], reverse=True)[:10]
+            feature_importances = [{"feature": str(f), "importance": round(float(imp), 4)} for f, imp in feat_imp]
+
+    else:
+        task_type = "unsupervised"
+        kmeans = KMeans(n_clusters=min(3, max(2, total_records // 5)), random_state=42, n_init=10)
+        clusters = kmeans.fit_predict(X_mat)
+
+        best_algo = "K-Means Clustering & Isolation Forest (Unsupervised)"
+        results_df["cluster_id"] = [f"Cluster {c+1}" for c in clusters]
+        metrics = {"Clusters": len(set(clusters)), "Features_Analyzed": len(feature_cols)}
+
+    pred_records = results_df.to_dict(orient='records')
+    csv_buf = io.StringIO()
+    results_df.to_csv(csv_buf, index=False)
+    csv_str = csv_buf.getvalue()
+
+    return {
+        "task_type": task_type,
+        "target_column": target_col,
+        "best_algorithm": best_algo,
+        "metrics": metrics,
+        "feature_importances": feature_importances,
+        "predictions": pred_records[:100],
+        "total_records": total_records,
+        "train_rows": int(total_records * 0.8),
+        "test_rows": int(total_records * 0.2),
+        "csv_content": csv_str
+    }
 

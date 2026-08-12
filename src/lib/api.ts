@@ -119,5 +119,19 @@ export const api = {
     params.append('limit', limit.toString());
     params.append('offset', offset.toString());
     return fetchJSON<{ customers: any[]; total?: number; limit?: number; offset?: number }>(`/api/customers?${params.toString()}`);
+  },
+
+  async inspectAutoMLDataset(records: any[], filename = 'uploaded_dataset.csv') {
+    return fetchJSON<any>('/api/automl/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ records, filename }),
+    });
+  },
+
+  async trainAndPredictAutoML(request: { records: any[]; target_column?: string | null; task_type?: string }) {
+    return fetchJSON<any>('/api/automl/train-predict', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
   }
 };

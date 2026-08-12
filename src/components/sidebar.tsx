@@ -13,13 +13,15 @@ import {
   BrainCircuit,
   HelpCircle,
   ShieldCheck,
-  UserCheck
+  UserCheck,
+  Cpu
 } from 'lucide-react';
 
 const navItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'New Assessment', href: '/assessment', icon: FilePlus },
   { name: 'Batch Prediction', href: '/batch', icon: Layers },
+  { name: 'Universal AutoML', href: '/automl', icon: Cpu },
   { name: 'Data Integration', href: '/integration', icon: Database },
   { name: 'Customers', href: '/customers', icon: Users },
   { name: 'Results History', href: '/results', icon: History },

@@ -97,3 +97,54 @@ export interface IntegrationSource {
   host?: string;
   database?: string;
 }
+
+// --- Universal AutoML Data Models ---
+export interface ColumnSummary {
+  name: string;
+  data_type: 'numeric' | 'categorical' | 'datetime' | 'text';
+  unique_count: number;
+  missing_count: number;
+  missing_pct: number;
+  sample_values: any[];
+  is_id_candidate: boolean;
+  is_target_candidate: boolean;
+  target_score: number;
+  reason?: string;
+}
+
+export interface DatasetInspectionResult {
+  filename: string;
+  total_rows: number;
+  total_columns: number;
+  duplicate_rows: number;
+  columns: ColumnSummary[];
+  target_candidates: ColumnSummary[];
+  suggested_task: 'binary' | 'multiclass' | 'regression' | 'unsupervised';
+  sample_records: Record<string, any>[];
+  is_credit_risk_schema: boolean;
+}
+
+export interface AutoMLTrainRequest {
+  filename?: string;
+  records: Record<string, any>[];
+  target_column?: string | null;
+  task_type?: 'binary' | 'multiclass' | 'regression' | 'unsupervised';
+}
+
+export interface FeatureImportanceItem {
+  feature: string;
+  importance: number;
+}
+
+export interface AutoMLResult {
+  task_type: 'binary' | 'multiclass' | 'regression' | 'unsupervised';
+  target_column?: string | null;
+  best_algorithm: string;
+  metrics: Record<string, number>;
+  feature_importances: FeatureImportanceItem[];
+  predictions: Record<string, any>[];
+  total_records: number;
+  train_rows: number;
+  test_rows: number;
+  csv_content: string;
+}
