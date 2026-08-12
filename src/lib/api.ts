@@ -72,8 +72,11 @@ export const api = {
       body: formData,
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Batch prediction failed' }));
-      throw new Error(err.detail || 'Batch prediction failed');
+      if (res.status === 413) {
+        throw new Error('Uploaded file size exceeds Vercel payload limit (4.5 MB). For large datasets, import through Google Cloud Storage / BigQuery.');
+      }
+      const err = await res.json().catch(() => ({ detail: `Server HTTP ${res.status} Error` }));
+      throw new Error(err.detail || `Batch prediction failed (HTTP ${res.status})`);
     }
     return await res.json();
   },

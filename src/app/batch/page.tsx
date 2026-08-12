@@ -18,6 +18,45 @@ import {
 import { api } from '@/lib/api';
 import { BatchPredictionResponse, PredictionResult } from '@/lib/types';
 
+function parseCSVToJSON(text: string, maxRows = 2000): { records: any[]; totalRows: number } {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length <= 1) return { records: [], totalRows: 0 };
+
+  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+  const totalRows = lines.length - 1;
+  const targetLines = lines.slice(1, maxRows + 1);
+
+  const records = targetLines.map((line) => {
+    const values: string[] = [];
+    let insideQuote = false;
+    let current = '';
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        insideQuote = !insideQuote;
+      } else if (char === ',' && !insideQuote) {
+        values.push(current.trim().replace(/^"|"$/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim().replace(/^"|"$/g, ''));
+
+    const rowObj: Record<string, any> = {};
+    headers.forEach((h, idx) => {
+      if (h) {
+        const val = values[idx] ?? '';
+        const num = Number(val);
+        rowObj[h] = val !== '' && !isNaN(num) ? num : val;
+      }
+    });
+    return rowObj;
+  });
+
+  return { records, totalRows };
+}
+
 export default function BatchPredictionPage() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,13 +68,6 @@ export default function BatchPredictionPage() {
   const validateFile = (selectedFile: File): boolean => {
     if (!selectedFile.name.endsWith('.csv') && !selectedFile.name.endsWith('.json')) {
       setError('Please upload a valid CSV or JSON file.');
-      setFile(null);
-      return false;
-    }
-
-    // 10 MB file size check
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      setError('For datasets larger than 10 MB, import through Google Cloud Storage / BigQuery.');
       setFile(null);
       return false;
     }
@@ -75,8 +107,37 @@ export default function BatchPredictionPage() {
     setError(null);
 
     try {
-      const res = await api.predictBatchCSV(file);
-      setBatchData(res);
+      if (file.name.endsWith('.csv')) {
+        const text = await file.text();
+        const { records, totalRows } = parseCSVToJSON(text, 2000);
+        if (records.length === 0) {
+          throw new Error('CSV file contains no readable data records.');
+        }
+        const res = await api.predictBatchJSON(records);
+        if (totalRows > 2000) {
+          res.errors = res.errors || [];
+          res.errors.unshift(`Uploaded dataset '${file.name}' contains ${totalRows.toLocaleString()} rows. Processed first 2,000 records for real-time inference.`);
+        }
+        setBatchData(res);
+      } else if (file.name.endsWith('.json')) {
+        const text = await file.text();
+        const rawJson = JSON.parse(text);
+        const recordsArr = Array.isArray(rawJson) ? rawJson : (rawJson.records || []);
+        const totalRows = recordsArr.length;
+        if (totalRows === 0) {
+          throw new Error('JSON file contains no data array.');
+        }
+        const sliced = recordsArr.slice(0, 2000);
+        const res = await api.predictBatchJSON(sliced);
+        if (totalRows > 2000) {
+          res.errors = res.errors || [];
+          res.errors.unshift(`Uploaded JSON dataset contains ${totalRows.toLocaleString()} records. Processed first 2,000 records.`);
+        }
+        setBatchData(res);
+      } else {
+        const res = await api.predictBatchCSV(file);
+        setBatchData(res);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to process batch predictions.');
     } finally {
